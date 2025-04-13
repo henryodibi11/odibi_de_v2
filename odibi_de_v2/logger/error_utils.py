@@ -1,4 +1,4 @@
-from core import ErrorType
+from ..core.enums import ErrorType
 
 
 def format_error(
