@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from core.saver_factory import SaverFactory
-from core.cloud_connector import CloudConnector
-from core.enums import DataType
+from .saver_factory import SaverFactory
+from .cloud_connector import CloudConnector
+from .enums import DataType
 
 
 class SaverProvider(ABC):

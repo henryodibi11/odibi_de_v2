@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from core.reader_factory import ReaderFactory
-from core.enums import DataType
-from core.cloud_connector import CloudConnector
+from .reader_factory import ReaderFactory
+from .enums import DataType
+from .cloud_connector import CloudConnector
 
 
 class ReaderProvider(ABC):
