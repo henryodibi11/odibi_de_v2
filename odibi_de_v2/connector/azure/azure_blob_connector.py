@@ -1,7 +1,7 @@
 from azure.storage.blob import BlobServiceClient
-from ..core import CloudConnector, Framework
-from ..logger import log_info, log_error, format_error
-from ..core.enums import ErrorType
+from odibi_de_v2.core import CloudConnector, Framework
+from odibi_de_v2.logger import log_info, log_error, format_error
+from odibi_de_v2.core.enums import ErrorType
 
 
 class AzureBlobConnector(CloudConnector):
