@@ -1,0 +1,14 @@
+# requirements.txt
+pandas
+numpy
+fastavro
+fsspec
+pyarrow
+azure-storage-blob
+pyspark
+pyodbc
+
+# Optional: add dev tools at the bottom
+pytest
+black
+mypy
