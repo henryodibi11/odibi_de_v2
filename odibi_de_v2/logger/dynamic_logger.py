@@ -1,6 +1,6 @@
 import logging
-from logger.metadata_manager import MetadataManager
-from logger.capturing_handler import CapturingHandler
+from .metadata_manager import MetadataManager
+from .capturing_handler import CapturingHandler
 
 
 class DynamicLogger:

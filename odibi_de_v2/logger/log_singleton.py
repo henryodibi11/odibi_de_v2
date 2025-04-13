@@ -1,6 +1,6 @@
 import threading
-from logger.metadata_manager import MetadataManager
-from logger.dynamic_logger import DynamicLogger
+from .metadata_manager import MetadataManager
+from .dynamic_logger import DynamicLogger
 
 
 _logger_instance = None

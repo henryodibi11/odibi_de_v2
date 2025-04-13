@@ -1,4 +1,4 @@
-from logger.log_singleton import get_logger
+from .log_singleton import get_logger
 
 
 def log_info(message: str):
