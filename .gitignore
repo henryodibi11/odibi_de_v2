@@ -1,2 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
 
-.databricks
+# Jupyter Notebooks
+*.ipynb_checkpoints
+
+# Virtual environment
+.venv/
+env/
+
+# VSCode
+.vscode/
+
+# Databricks
+.databricks/
+
+# Pytest cache
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
