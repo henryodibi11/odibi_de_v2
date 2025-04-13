@@ -6,7 +6,7 @@ and supported formats in a framework-agnostic way.
 """
 
 from typing import List, Any
-from utils.file_utils import is_supported_format
+from odibi_de_v2.utils.file_utils import is_supported_format
 
 
 def validate_required_keys(data: dict, required_keys: List[str]) -> bool:
