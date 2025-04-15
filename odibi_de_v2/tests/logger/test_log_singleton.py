@@ -1,5 +1,5 @@
-from logger.log_singleton import get_logger, refresh_logger
-from logger.metadata_manager import MetadataManager
+from odibi_de_v2.logger.log_singleton import get_logger, refresh_logger
+from odibi_de_v2.logger.metadata_manager import MetadataManager
 
 
 def test_get_logger_returns_same_instance():

@@ -1,5 +1,5 @@
 import logging
-from logger.capturing_handler import CapturingHandler
+from odibi_de_v2.logger.capturing_handler import CapturingHandler
 
 
 def test_captures_single_log_message():

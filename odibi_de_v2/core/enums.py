@@ -219,6 +219,7 @@ class ErrorType(Enum):
         TYPE_ERROR (str): Indicates mismatched or unexpected data type.
         UNKNOWN (str): Default fallback for uncategorized errors.
         NO_ERROR (str): Indicates no error.
+        SCHEMA_ERROR (str): Indicates schema validation failure.
 
     Example:
         >>> ErrorType.VALUE_ERROR.value
@@ -237,3 +238,4 @@ class ErrorType(Enum):
     TYPE_ERROR = "TYPE_ERROR"
     UNKNOWN = "UNKNOWN"
     NO_ERROR = "NO_ERROR"
+    SCHEMA_ERROR = "SCHEMA_ERROR"

@@ -1,6 +1,6 @@
 
-from logger.error_utils import format_error
-from core import ErrorType
+from odibi_de_v2.logger.error_utils import format_error
+from odibi_de_v2.core import ErrorType
 
 
 def test_format_error_output():

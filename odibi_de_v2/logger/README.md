@@ -2,14 +2,15 @@
 The `logger/` module provides a suite of lightweight, framework-agnostic utility functions for use throughout the `odibi_de_v2` data engineering framework. These utilities help enforce consistency, reduce duplication, and enable environment-aware automation.
 ---
 ## Modules
-| Module                | Description                                                     |
-|-----------------------|-----------------------------------------------------------------|
-| `dynamic_logger.py`   | Core logger logic with metadata injection and handler setup     |
-| `log_singleton.py`    | Singleton wrapper around the logger                             |
-| `metadata_manager.py` | Stores and updates runtime metadata                             |
-| `capturing_handler.py`| In-memory handler for capturing log messages                    |
-| `log_utils.py`        | Convenience methods: `log_info`, `log_error`, etc.              |
-| `error_utils.py`      | Error formatting helper using `ErrorType` enum                  |
+| Module                | Description                                                              |
+|-----------------------|--------------------------------------------------------------------------|
+| `dynamic_logger.py`   | Core logger logic with metadata injection and handler setup              |
+| `log_singleton.py`    | Singleton wrapper around the logger                                      |
+| `metadata_manager.py` | Stores and updates runtime metadata                                      |
+| `capturing_handler.py`| In-memory handler for capturing log messages                             |
+| `error_utils.py`      | Error formatting helper using `ErrorType` enum                           |
+| `decorator.py`        | Decorator to log exceptions with contextual metadata                     |
+| `log_helper.py`       | Internal logic to raiser or skip errors based on logging level & config  |
 ---
 
 ## Example Usage
