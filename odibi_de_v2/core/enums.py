@@ -65,7 +65,7 @@ class Framework(Enum):
         PANDAS (str): Represents the Pandas data analysis library.
         SPARK (str): Represents the Apache Spark distributed data
         processing framework.
-        SNOWFLAKE (str): Represents the Snowflake cloud data platform.
+        LOCAL (str): Represents local execution without a distributed framework.
 
     Example:
         >>> Framework.PANDAS.value
@@ -76,6 +76,7 @@ class Framework(Enum):
     """
     PANDAS = "pandas"
     SPARK = "spark"
+    LOCAL = "local"
 
 
 class ValidationType(Enum):

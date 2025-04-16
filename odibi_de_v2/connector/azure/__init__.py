@@ -1,6 +1,6 @@
-from .azure_blob_connector import AzureBlobConnector
+from .azure_blob_connector import AzureBlobConnection
 
 
 __all__ = [
-    "AzureBlobConnector"
+    "AzureBlobConnection"
 ]

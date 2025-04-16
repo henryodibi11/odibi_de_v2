@@ -1,215 +1,176 @@
-from azure.storage.blob import BlobServiceClient
-from odibi_de_v2.core import CloudConnector, Framework
 from odibi_de_v2.utils import (
-    validate_non_empty, enforce_types, log_call, benchmark)
+    enforce_types, log_call)
 from odibi_de_v2.logger import log_and_optionally_raise
 from odibi_de_v2.core.enums import ErrorType
 from odibi_de_v2.logger import log_exceptions
+from typing import Optional
+from odibi_de_v2.core import Framework, BaseConnection
 
-class AzureBlobConnector(CloudConnector):
+
+class AzureBlobConnection(BaseConnection):
     """
-    Connector class for authenticated access to Azure Blob Storage.
+    Connection class for accessing Azure Blob Storage using Spark or Pandas.
 
-    This class provides framework-agnostic integration with Azure Blob Storage,
-    supporting both Spark and Pandas. It exposes standardized methods to:
-    - Establish an authenticated Azure SDK client.
-    - Generate framework-compatible blob paths.
-    - Return config dictionaries for use in distributed file access.
+    This connector resolves cloud file paths and constructs the appropriate storage options
+    dictionary for Spark and Pandas engines based on the selected `Framework`.
 
-    Attributes:
-        account_name (str): Azure storage account name.
-        account_key (str): Azure storage account key.
+    It supports:
+    - ABFS path resolution for both `Spark` (`abfss://...`) and `Pandas` (`abfs://...`)
+    - Automatic configuration key generation for `spark.conf.set(...)`
+    - Storage options formatted for fsspec compatibility with Pandas
+    - Logging for successful and failed path resolution attempts
+    - Runtime-safe exceptions using structured decorators
+
+    Decorators:
+        - @log_call: Logs method entry/exit
+        - @enforce_types: Enforces input type safety
+        - @log_exceptions: Logs and optionally raises runtime errors
 
     Example:
-    >>> connector = AzureBlobConnector("myaccount", "mykey")
-    >>> client = connector.get_connection()
-    >>> spark_path = connector.get_file_path(
-    ... "landing", "data.csv", Framework.SPARK)
-    >>> config = connector.get_framework_config(Framework.SPARK)
+        >>> connector = AzureBlobConnection(
+        ...     account_name="myaccount",
+        ...     account_key="secret",
+        ...     framework=Framework.SPARK
+        ... )
+        >>> file_path = connector.get_file_path(
+        ...     container="bronze",
+        ...     path_prefix="raw/events",
+        ...     object_name="sales.csv"
+        ... )
+        >>> storage_options = connector.get_storage_options()
     """
 
-    @validate_non_empty(["account_name", "account_key"])
+    @log_call(module="CONNECTOR", component="AzureBlobConnection")
     @enforce_types(strict=True)
-    def __init__(self, account_name: str, account_key: str):
+    def __init__(self, account_name: str, account_key: str, framework: Framework):
         """
-        Initialize the Azure Blob Storage connector.
-
-        Validates the required credentials and prepares the connector
-        for building authenticated URIs and configuration settings.
+        Initialize the Azure connector.
 
         Args:
             account_name (str): Azure storage account name.
-            account_key (str): Azure storage account key.
-
-        Raises:
-            ValueError: If any required input is missing or invalid.
-
-        Example:
-        >>> connector = AzureBlobConnector("myaccount", "mykey")
+            account_key (str): Corresponding account key.
+            framework (Framework): Target framework (PANDAS or SPARK).
         """
         self.account_name = account_name
         self.account_key = account_key
-        self.connector = self.get_connection()
-    @log_call(module="CONNECTOR", component="AzureBlobConnector")
-    @benchmark(module="CONNECTOR", component="AzureBlobConnector")
-    @log_exceptions(
-        module="CONNECTOR",
-        component="AzureBlobConnector",
-        error_type=ErrorType.CONNECTION_ERROR,
-        raise_type=RuntimeError
-    )
-    @enforce_types(strict=True)
-    def get_connection(self) -> BlobServiceClient:
-        """
-        Establish and return a connection to Azure Blob Storage.
+        self.framework = framework
 
-        Returns:
-            BlobServiceClient: Authenticated client for interacting with the Azure
-                Blob service.
 
-        Raises:
-            RuntimeError: If the connection fails or credentials are invalid.
-
-        Example:
-        >>> client = connector.get_connection()
-        >>> containers = client.list_containers()
-        """
-        url = f"https://{self.account_name}.blob.core.windows.net"
-        client = BlobServiceClient(
-            account_url=url,
-            credential=self.account_key)
-        log_and_optionally_raise(
-            module="CONNECTOR",
-            component="AzureBlobConnector",
-            method="get_connection",
-            error_type=ErrorType.NO_ERROR,
-            message="Successfully connected to Azure Blob Storage.",
-            level="INFO"
-        )
-
-        return client
-    @log_call(module="CONNECTOR", component="AzureBlobConnector")
+    @log_call(module="CONNECTOR", component="AzureBlobConnection")
     @enforce_types(strict=True)
     @log_exceptions(
         module="CONNECTOR",
-        component="AzureBlobConnector",
-        error_type=ErrorType.VALUE_ERROR,
-        raise_type=ValueError)
+        component="AzureBlobConnection",
+        error_type=ErrorType.Runtime_Error,
+        raise_type=RuntimeError)
     def get_file_path(
         self,
         container: str,
-        blob_name: str,
-        framework: Framework
-            ) -> str:
+        path_prefix: str,
+        object_name: str
+    ) -> str:
         """
-        Generate a fully qualified path for accessing blobs with Spark or Pandas.
+        Construct a framework-specific ABFS path to an Azure Blob file.
 
         Args:
-            container (str): Name of the Azure Blob Storage container.
-            blob_name (str): Path to the blob inside the container.
-            framework (Framework): Target framework (e.g., Framework.SPARK or
-                Framework.PANDAS).
+            container (str): Azure Blob container name (e.g., "bronze").
+            path_prefix (str): Folder or directory path inside the container.
+            object_name (str): Name of the file or blob.
 
         Returns:
-            str: A URI path compatible with the specified framework.
-
-        Raises:
-            ValueError: If an unsupported framework is passed.
-
-        Example:
-        >>> connector.get_file_path("raw", "data.csv", Framework.SPARK)
-        ... 'abfss://raw@myaccount.dfs.core.windows.net/data.csv'
+            str: Fully qualified path formatted for the specified engine.
         """
-
-        if framework.value == "spark":
-            path = (
-                f"abfss://{container}@{self.account_name}."
-                f"dfs.core.windows.net/{blob_name}")
-            # Log Success
-            log_and_optionally_raise(
+        blob_path = f"{path_prefix}/{object_name}"
+        log_and_optionally_raise(
             module="CONNECTOR",
             component="AzureBlobConnector",
             method="get_file_path",
             error_type=ErrorType.NO_ERROR,
-            message="Successfully resolved Spark path",
+            message="Attempting to resolve file path...",
             level="INFO")
-            return path
-        elif framework.value == "pandas":
-            path = f"az://{container}/{blob_name}"
-            # Log Success
-            log_and_optionally_raise(
-            module="CONNECTOR",
-            component="AzureBlobConnector",
-            method="get_file_path",
-            error_type=ErrorType.NO_ERROR,
-            message="Successfully resolved Pandas path",
-            level="INFO")
-            return path
-        else:
-            log_and_optionally_raise(
-            module="CONNECTOR",
-            component="AzureBlobConnector",
-            method="get_file_path",
-            error_type=ErrorType.VALUE_ERROR,
-            message=f"Unsupported framework: {framework.value}",
-            raise_exception=True)
+        match self.framework:
+            case Framework.SPARK:
+                file_path = (
+                    f"abfss://{container}@{self.account_name}."
+                    f"dfs.core.windows.net/{blob_path}")
+                log_and_optionally_raise(
+                    module="CONNECTOR",
+                    component="AzureBlobConnector",
+                    method="get_file_path",
+                    error_type=ErrorType.NO_ERROR,
+                    message=f"Successfully resolved Spark file path: {file_path}",
+                    level="INFO")
+                return file_path
 
+            case Framework.PANDAS:
+                file_path = f"abfs://{container}/{blob_path}"
+                log_and_optionally_raise(
+                    module="CONNECTOR",
+                    component="AzureBlobConnector",
+                    method="get_file_path",
+                    error_type=ErrorType.NO_ERROR,
+                    message=f"Successfully resolved Pandas file path: {file_path}",
+                    level="INFO")
+                return file_path
+
+            case _:
+                raise NotImplementedError(
+                    f"AzureBlobConnection does not support framework: {self.framework}")
+
+
+    @log_call(module="CONNECTOR", component="AzureBlobConnection")
+    @enforce_types(strict=True)
     @log_exceptions(
         module="CONNECTOR",
-        component="AzureBlobConnector",
-        error_type=ErrorType.VALUE_ERROR,
-        raise_type=ValueError)
-    @enforce_types(strict=True)
-    def get_framework_config(self, framework: Framework) -> dict:
+        component="AzureBlobConnection",
+        error_type=ErrorType.Runtime_Error,
+        raise_type=RuntimeError)
+    def get_storage_options(self) -> Optional[dict]:
         """
-        Return framework-specific configuration settings for accessing Azure
-            Blob Storage.
-        Args:
-            framework (Framework): Target framework (e.g., Framework.SPARK or
-                Framework.PANDAS).
+        Returns the correct authentication dictionary for the engine in use.
+
         Returns:
-            dict: Configuration options tailored to the specified framework.
-        Raises:
-            ValueError: If the framework is unsupported.
-        Example:
-        >>> connector.get_framework_config(Framework.SPARK)
-        ... {'fs.azure.account.key.myaccount.dfs.core.windows.net': 'mykey'}
+            dict or None: Storage options for Spark or Pandas, or None if unsupported.
         """
-
-        if framework == Framework.SPARK:
-            config_key = (
-                f"fs.azure.account.key.{self.account_name}."
-                "dfs.core.windows.net")
-            config = {config_key: self.account_key}
-            # Log Success
-            log_and_optionally_raise(
+        log_and_optionally_raise(
             module="CONNECTOR",
             component="AzureBlobConnector",
-            method="get_framework_config",
+            method="get_file_path",
             error_type=ErrorType.NO_ERROR,
-            message="Successfully resolved Spark config",
+            message="Attempting to resolve storage options...",
             level="INFO")
+        match self.framework:
+            case Framework.PANDAS:
+                storage_option = {
+                    "account_name": self.account_name,
+                    "account_key": self.account_key}
+                log_and_optionally_raise(
+                    module="CONNECTOR",
+                    component="AzureBlobConnector",
+                    method="get_file_path",
+                    error_type=ErrorType.NO_ERROR,
+                    message=(
+                        "Successfully resolved Pandas storage optioons: "
+                        f"{storage_option}"),
+                    level="INFO")
+                return storage_option
 
-            return config
-        elif framework == Framework.PANDAS:
-            config = {
-                "account_name": self.account_name,
-                "account_key": self.account_key}
-            # Log Success
-            log_and_optionally_raise(
-            module="CONNECTOR",
-            component="AzureBlobConnector",
-            method="get_framework_config",
-            error_type=ErrorType.NO_ERROR,
-            message="Successfully resolved Pandas config",
-            level="INFO")
+            case Framework.SPARK:
+                storage_option = {
+                    f"fs.azure.account.key.{self.account_name}.dfs.core.windows.net": self.account_key
+                    }
+                log_and_optionally_raise(
+                    module="CONNECTOR",
+                    component="AzureBlobConnector",
+                    method="get_file_path",
+                    error_type=ErrorType.NO_ERROR,
+                    message=(
+                        "Successfully resolved Spark storage optioons: "
+                        f"{storage_option}"),
+                    level="INFO")
+                return storage_option
 
-            return config
-        else:
-            log_and_optionally_raise(
-                module="CONNECTOR",
-                component="AzureBlobConnector",
-                method="get_framework_config",
-                error_type=ErrorType.VALUE_ERROR,
-                message=f"Unsupported framework: {framework.value}",
-                raise_exception=True)
+            case _:
+                raise NotImplementedError(
+                    f"AzureBlobConnection does not support framework: {self.framework}"
+                )

@@ -1,6 +1,8 @@
-from .azure import AzureBlobConnector
+from .azure import AzureBlobConnection
+from .local import LocalConnection
 
 
 __all__ = [
-    "AzureBlobConnector"
+    "AzureBlobConnection",
+    "LocalConnection"
 ]
