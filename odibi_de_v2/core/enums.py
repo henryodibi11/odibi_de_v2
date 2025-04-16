@@ -220,6 +220,9 @@ class ErrorType(Enum):
         UNKNOWN (str): Default fallback for uncategorized errors.
         NO_ERROR (str): Indicates no error.
         SCHEMA_ERROR (str): Indicates schema validation failure.
+        Runtime_Error (str): Indicates a runtime error.
+        READ_ERROR (str): Indicates a read error.
+        SAVE_ERROR (str): Indicates a save error.
 
     Example:
         >>> ErrorType.VALUE_ERROR.value
@@ -239,3 +242,6 @@ class ErrorType(Enum):
     UNKNOWN = "UNKNOWN"
     NO_ERROR = "NO_ERROR"
     SCHEMA_ERROR = "SCHEMA_ERROR"
+    Runtime_Error = "Runtime_Error"
+    READ_ERROR = "READ_ERROR"
+    SAVE_ERROR = "SAVE_ERROR"

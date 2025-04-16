@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from .saver import DataSaver
 
 
 class SaverFactory(ABC):
@@ -32,7 +32,7 @@ class SaverFactory(ABC):
     """
 
     @abstractmethod
-    def csv_saver(self, file_path: str, **kwarg) -> Any:
+    def csv_saver(self, file_path: str, **kwarg) -> DataSaver:
         """
         Abstract method to create a CSV saver instance.
 
@@ -45,13 +45,13 @@ class SaverFactory(ABC):
                     - spark: `spark_session`
 
         Returns:
-            Any: A concrete saver instance that implements the DataSaver
+            DataSaver: A concrete saver instance that implements the DataSaver
                 interface.
         """
         pass
 
     @abstractmethod
-    def json_saver(self, file_path: str, **kwarg) -> Any:
+    def json_saver(self, file_path: str, **kwarg) -> DataSaver:
         """
         Abstract method to create a JSON saver instance.
 
@@ -64,13 +64,13 @@ class SaverFactory(ABC):
                     - spark: `spark_session`
 
         Returns:
-            Any: A concrete saver instance that implements the DataSaver
+            DataSaver: A concrete saver instance that implements the DataSaver
                 interface.
         """
         pass
 
     @abstractmethod
-    def avro_saver(self, file_path: str, **kwarg) -> Any:
+    def avro_saver(self, file_path: str, **kwarg) -> DataSaver:
         """
         Abstract method to create a Avro saver instance.
 
@@ -83,13 +83,13 @@ class SaverFactory(ABC):
                     - spark: `spark_session`
 
         Returns:
-            Any: A concrete saver instance that implements the DataSaver
+            DataSaver: A concrete saver instance that implements the DataSaver
                 interface.
         """
         pass
 
     @abstractmethod
-    def parquet_saver(self, file_path: str, **kwarg) -> Any:
+    def parquet_saver(self, file_path: str, **kwarg) -> DataSaver:
         """
         Abstract method to create a Parquet saver instance.
 
@@ -102,7 +102,7 @@ class SaverFactory(ABC):
                     - spark: `spark_session`
 
         Returns:
-            Any: A concrete saver instance that implements the DataSaver
+            DataSaver: A concrete saver instance that implements the DataSaver
                 interface.
         """
         pass

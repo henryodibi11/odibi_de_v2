@@ -49,6 +49,7 @@ class AzureBlobConnector(CloudConnector):
         """
         self.account_name = account_name
         self.account_key = account_key
+        self.connector = self.get_connection()
     @log_call(module="CONNECTOR", component="AzureBlobConnector")
     @benchmark(module="CONNECTOR", component="AzureBlobConnector")
     @log_exceptions(

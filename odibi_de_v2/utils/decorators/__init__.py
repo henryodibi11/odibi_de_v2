@@ -5,6 +5,7 @@ from .log_call import log_call
 from .type_enforcement import enforce_types
 from .validate_non_empty import validate_non_empty
 from .validate_schema import validate_schema
+from .validate_input_types import validate_input_types
 
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "enforce_types",
     "validate_non_empty",
     "validate_schema",
+    "validate_input_types"
 ]

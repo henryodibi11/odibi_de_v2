@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from .reader_factory import ReaderFactory
 from .enums import DataType
 from .cloud_connector import CloudConnector
+from .reader import DataReader
 
 
 class ReaderProvider(ABC):
@@ -51,7 +52,7 @@ class ReaderProvider(ABC):
         self.connector = connector
 
     @abstractmethod
-    def create_reader(self, storage_unit: str, object_name: str):
+    def create_reader(self, storage_unit: str, object_name: str) -> DataReader:
         """
         Creates and returns a reader based on the configured factory,
         data type, and connector.
@@ -69,7 +70,8 @@ class ReaderProvider(ABC):
             object_name: The path to the data
 
         Returns:
-            Any: A concrete reader instance that implements the DataReader
-                interface.
+            DataReader: A fully initialized reader instance (e.g, PandasDataReader
+                or SparkDataReder) that conforms to the DataReader interface and is
+                readey to load data from the specified storage unit and object name.
         """
         pass

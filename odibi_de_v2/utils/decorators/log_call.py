@@ -29,15 +29,15 @@ def log_call(module: str = "UNKNOWN", component: str = "unknown"):
             bound = sig.bind(*args, **kwargs)
             bound.apply_defaults()
 
-            arg_str = ", ".join(
-                f"{k}={v!r}" for k, v in bound.arguments.items()
+            arg_str = ",\n".join(
+                f"{k}={v!r}" for k, v in bound.arguments.items() if k != "self"
             )
 
             log_and_optionally_raise(
                 module=module,
                 component=component,
                 method=func.__name__,
-                message=f"Called with {arg_str}",
+                message=f"Called with:\n{arg_str}",
                 level="INFO",
             )
 

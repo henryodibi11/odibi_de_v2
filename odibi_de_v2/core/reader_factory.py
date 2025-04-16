@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any
+from .reader import DataReader
 
 
 class ReaderFactory(ABC):
@@ -30,7 +31,7 @@ class ReaderFactory(ABC):
             df = reader.read_data()
     """
     @abstractmethod
-    def csv_reader(self, file_path: str, **kwarg) -> Any:
+    def csv_reader(self, file_path: str, **kwarg) -> DataReader:
         """
         Abstract method to create a CSV reader instance.
 
@@ -43,13 +44,13 @@ class ReaderFactory(ABC):
                     - spark: `spark_session`
 
         Returns:
-            Any: A concrete reader instance that implements the DataReader
+            DataReader: A concrete reader instance that implements the DataReader
                 interface.
         """
         pass
 
     @abstractmethod
-    def json_reader(self, file_path: str, **kwarg) -> Any:
+    def json_reader(self, file_path: str, **kwarg) -> DataReader:
         """
         Abstract method to create a JSON reader instance.
 
@@ -62,13 +63,13 @@ class ReaderFactory(ABC):
                     - spark: `spark_session`
 
         Returns:
-            Any: A concrete reader instance that implements the DataReader
+            DataReader: A concrete reader instance that implements the DataReader
                 interface.
         """
         pass
 
     @abstractmethod
-    def avro_reader(self, file_path: str, **kwarg) -> Any:
+    def avro_reader(self, file_path: str, **kwarg) -> DataReader:
         """
         Abstract method to create a Avro reader instance.
 
@@ -81,13 +82,13 @@ class ReaderFactory(ABC):
                     - spark: `spark_session`
 
         Returns:
-            Any: A concrete reader instance that implements the DataReader
+            DataReader: A concrete reader instance that implements the DataReader
                 interface.
         """
         pass
 
     @abstractmethod
-    def parquet_reader(self, file_path: str, **kwarg) -> Any:
+    def parquet_reader(self, file_path: str, **kwarg) -> DataReader:
         """
         Abstract method to create a Parquet reader instance.
 

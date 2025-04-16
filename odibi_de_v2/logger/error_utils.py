@@ -34,4 +34,4 @@ def format_error(
         'VALIDATOR.SchemaValidator.run - VALUE_ERROR: Missing field \'site_id\'
         '
     """
-    return f"{module}.{component}.{method} - {error_type.value}: {message}"
+    return f"{module}.{component}.{method} - ERROR TYPE: {error_type.value} - {message}\n"

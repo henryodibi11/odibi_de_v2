@@ -23,17 +23,16 @@ class DataSaver(ABC):
         >>> df = pd.DataFrame({"A": [1, 2], "B": [3, 4]})
         >>> saver.save_data(df, index=False)
     """
-    def __init__(self, file_path: str):
-        self.file_path = file_path
 
     @abstractmethod
-    def save_data(self, data, **kwargs):
+    def save_data(self, data, file_path, **kwargs):
         """
         Abstract method to save datasets.
 
         Args:
             data (Any): Dataset object to save, as defined by the concrete
                 implementation (e.g., a pandas DataFrame).
+            file_path (str): The path to the file where data will be saved.
             **kwargs: Additional keyword arguments to be used by the
             implementation (e.g., `index`, `header`, etc.).
 

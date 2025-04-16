@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from .saver_factory import SaverFactory
 from .cloud_connector import CloudConnector
 from .enums import DataType
+from . saver import DataSaver
 
 
 class SaverProvider(ABC):
@@ -57,7 +58,7 @@ class SaverProvider(ABC):
         self,
         storage_unit: str,
         object_name: str
-    ):
+        ) -> DataSaver:
         """
         Creates and returns a saver based on the configured factory,
         data type, and connector.
@@ -75,7 +76,8 @@ class SaverProvider(ABC):
             object_name: The path to the data
 
         Returns:
-            Any: A concrete saver instance that implements the DataSaver
-                interface.
+            DataSaver: A fully initialized reader instance (e.g, PandasDataSaver
+                or SparkDataReder) that conforms to the DataSaver interface and is
+                readey to saver data to the specified storage unit and object name.
         """
         pass
