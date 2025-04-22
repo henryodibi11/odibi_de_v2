@@ -88,7 +88,7 @@ class SaverProvider:
         self.local_engine = local_engine
 
     @log_call(module="STORAGE", component="SaverProvider")
-    @enforce_types()
+    @enforce_types(strict=False)
     @log_exceptions(
         module="STORAGE",
         component="SaverProvider",
@@ -101,7 +101,7 @@ class SaverProvider:
         container: str,
         path_prefix: str,
         object_name: str,
-        spark: SparkSession = None,
+        spark,
         is_stream: bool = False,
         **kwargs
     ) -> None:
