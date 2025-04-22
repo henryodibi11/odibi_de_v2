@@ -101,7 +101,7 @@ class SaverProvider:
         container: str,
         path_prefix: str,
         object_name: str,
-        spark,
+        spark=None,
         is_stream: bool = False,
         **kwargs
     ) -> None:
