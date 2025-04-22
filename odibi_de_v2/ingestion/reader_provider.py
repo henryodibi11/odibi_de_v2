@@ -13,27 +13,30 @@ from odibi_de_v2.logger import log_exceptions
 
 class ReaderProvider:
     """
-    Unified provider for reading structured data using Pandas, Spark, or Spark Streaming.
+    Reads data from local or cloud sources using the appropriate reader engine.
 
-    This class dynamically selects the appropriate reader based on the framework specified
-    in the connector. If the connector is local, it defaults to a configurable engine
-    (PANDAS or SPARK). It supports cloud and local paths using the same interface.
+    This method:
+    - Resolves the file path using the connector
+    - Applies any required Spark config (if using Spark)
+    - Dispatches to the correct reader (Pandas, Spark, Spark Streaming)
+    - Returns a DataFrame using the delegated reader logic
 
-    Responsibilities:
-    - Resolve file path and storage options using the connector
-    - Automatically apply Spark config options (if applicable)
-    - Select the correct reader (Pandas, Spark, or Spark Streaming)
-    - Delegate actual read logic to the reader class
+    Args:
+        data_type (DataType): File format enum (CSV, JSON, PARQUET, etc.).
+        container (str): Top-level storage container (e.g., "bronze").
+        path_prefix (str): Sub-directory path (e.g., "raw/events").
+        object_name (str): File name (e.g., "sales.csv").
+        spark (SparkSession): Spark session (required for Spark readers).
+        is_stream (bool, optional): If True, use SparkStreamingDataReader.
+        **kwargs: Additional reader options (e.g., sep, header, multiline).
 
-    Decorators:
-        - @log_call: Logs method entry and exit
-        - @enforce_types: Enforces type safety on init and read()
-        - @log_exceptions: Catches and raises decorated runtime errors
+    Returns:
+        Union[pd.DataFrame, pyspark.sql.DataFrame]: Loaded dataset
 
-    Note:
-        This class is intentionally lightweight. It delegates validation, benchmarking,
-        and logging of the read logic to the concrete reader classes themselves.
-
+    Raises:
+        ValueError: If Spark is required but not provided
+        NotImplementedError: If an unsupported framework is specified
+        RuntimeError: If any internal method fails (via decorated exception handler)
     Example:
         >>> provider = ReaderProvider()
         >>> df = provider.read(
@@ -55,24 +58,45 @@ class ReaderProvider:
         raise_type=RuntimeError)
     def __init__(
         self,
-        connector: BaseConnection = None,
+        connector: BaseConnection = LocalConnection(),
         local_engine: Framework = Framework.PANDAS):
         """
-        Initialize the ReaderProvider with an optional connector and local engine fallback.
+        Initializes a new instance of the ReaderProvider class with specified connection and data processing settings.
+
+        This constructor sets up a data connection and a local data processing engine for the ReaderProvider instance.
+        It allows customization of the data connection through the `connector` parameter, which must be an instance of
+        a class derived from `BaseConnection`. If no connector is specified, it defaults to `LocalConnection`. The
+        `local_engine` parameter determines the framework used for local data processing, defaulting to Pandas unless
+        specified otherwise.
 
         Args:
-            connector (BaseConnection): A cloud or local connection implementing
-                `get_file_path()` and `get_storage_options()`. If not provided, defaults to LocalConnection.
-            local_engine (Framework): If the connector is local, this determines whether
-                to read using Pandas or Spark. Defaults to Framework.PANDAS.
+            connector (BaseConnection, optional): The connection handler for accessing data sources. It should provide
+                methods like `get_file_path()` and `get_storage_options()`. Defaults to `LocalConnection`.
+            local_engine (Framework, optional): The data processing framework to use locally. Options include
+                ['7]`Framework.PANDAS` and `Framework.SPARK`, with a default of `Framework.PANDAS`.
+
+        Returns:
+            None: Constructor does not return any value.
+
+        Raises:
+            TypeError: If `connector` is not an instance of a class that inherits from `BaseConnection` or does not
+            implement the required methods.
+
+        Example:
+            # Creating a ReaderProvider with default settings
+            reader_provider = ReaderProvider()
+
+            # Using a custom connector and specifying Spark as the local processing engine
+            custom_connector = CustomConnection()
+            reader_provider = ReaderProvider(connector=custom_connector, local_engine=Framework.SPARK)
         """
 
-        self.connector = connector or LocalConnection()
+        self.connector = connector
         self.local_engine = local_engine
 
 
     @log_call(module="INGESTION", component="ReaderProvider")
-    @enforce_types()
+    @enforce_types(strict=False)
     @log_exceptions(
         module="INGESTION",
         component="ReaderProvider",
@@ -87,33 +111,46 @@ class ReaderProvider:
         spark: SparkSession = None,
         is_stream: bool = False,
         **kwargs
-    ) -> Union[pd.DataFrame, SparkDataFrame]:
+        ) -> Union[pd.DataFrame, SparkDataFrame]:
         """
-        Reads data from local or cloud sources using the appropriate reader engine.
+        Reads data from specified storage using a configured reader based on the data type and execution context.
 
-        This method:
-        - Resolves the file path using the connector
-        - Applies any required Spark config (if using Spark)
-        - Dispatches to the correct reader (Pandas, Spark, Spark Streaming)
-        - Returns a DataFrame using the delegated reader logic
+        This method dynamically selects the appropriate data reading mechanism (Pandas, Spark, or Spark Streaming) based
+        on the provided parameters and the environment configuration. It supports reading from various data formats and
+        handles different storage frameworks (local or cloud-based).
 
         Args:
-            data_type (DataType): File format enum (CSV, JSON, PARQUET, etc.).
-            container (str): Top-level storage container (e.g., "bronze").
-            path_prefix (str): Sub-directory path (e.g., "raw/events").
-            object_name (str): File name (e.g., "sales.csv").
-            spark (SparkSession): Spark session (required for Spark readers).
-            is_stream (bool, optional): If True, use SparkStreamingDataReader.
-            **kwargs: Additional reader options (e.g., sep, header, multiline).
+            data_type (DataType): The format of the data file to be read (e.g., CSV, JSON, PARQUET).
+            container (str): The name of the top-level storage container where data files are located.
+            path_prefix (str): The path prefix within the container where data files are stored.
+            object_name (str): The specific name of the data file to be read.
+            spark (SparkSession, optional): An instance of SparkSession if Spark-based operations are required.
+                Defaults to None.
+            is_stream (bool, optional): Flag to determine if Spark streaming should be used for reading data.
+                Defaults to False.
+            **kwargs: Arbitrary keyword arguments that are passed to the underlying data reader. These could include
+                options like 'sep' for CSV files, 'header' presence, etc.
 
         Returns:
-            Union[pd.DataFrame, pyspark.sql.DataFrame]: Loaded dataset
+            Union[pd.DataFrame, pyspark.sql.DataFrame]: A DataFrame object containing the loaded data, which could
+                either be a pandas DataFrame or a Spark DataFrame depending on the execution context.
 
         Raises:
-            ValueError: If Spark is required but not provided
-            NotImplementedError: If an unsupported framework is specified
-            RuntimeError: If any internal method fails (via decorated exception handler)
+            ValueError: If a Spark session is required but not provided, or if other necessary parameters are missing.
+            NotImplementedError: If the specified framework or data type is not supported by the implementation.
+            RuntimeError: If there is an error during the execution of the data reading process.
+
+        Example:
+            >>> read(DataType.CSV, "data_bucket", "2021/data", "sales.csv", spark=my_spark_session)
+            Returns a DataFrame containing data from the 'sales.csv' file located in '2021/data' within 'data_bucket'.
         """
+        if data_type == DataType.API:
+            if spark:
+                from odibi_de_v2.ingestion import SparkAPIReader
+                return SparkAPIReader(spark=spark, **kwargs).read_data()
+            else:
+                from odibi_de_v2.ingestion import PandasAPIReader
+                return PandasAPIReader(**kwargs).read_data()
 
 
         if not self.connector:
@@ -122,11 +159,9 @@ class ReaderProvider:
         file_path = self.connector.get_file_path(
             container=container,
             path_prefix=path_prefix,
-            object_name=object_name
-        )
+            object_name=object_name)
 
         options = self.connector.get_storage_options()
-
         framework = self.connector.framework
         if framework == Framework.LOCAL:
             framework = self.local_engine
@@ -145,15 +180,17 @@ class ReaderProvider:
                 if spark is None:
                     raise ValueError("Spark session is required for Spark reads.")
 
-                if options:
+                if options and data_type != DataType.SQL:
                     for key, value in options.items():
                         spark.conf.set(key, value)
+                    options = {}
 
                 reader = SparkStreamingDataReader() if is_stream else SparkDataReader()
                 return reader.read_data(
                     data_type=data_type,
                     file_path=file_path,
                     spark=spark,
+                    storage_options=options,
                     **kwargs
                 )
             case _:

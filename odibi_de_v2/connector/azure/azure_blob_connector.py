@@ -27,6 +27,8 @@ class AzureBlobConnection(BaseConnection):
         - @log_exceptions: Logs and optionally raises runtime errors
 
     Example:
+        >>> from odibi_de_v2.connector import AzureBlobConnection
+        >>> from odibi_de_v2.core import Framework
         >>> connector = AzureBlobConnection(
         ...     account_name="myaccount",
         ...     account_key="secret",
@@ -80,7 +82,7 @@ class AzureBlobConnection(BaseConnection):
         Returns:
             str: Fully qualified path formatted for the specified engine.
         """
-        blob_path = f"{path_prefix}/{object_name}"
+        blob_path = f"{path_prefix}{object_name}"
         log_and_optionally_raise(
             module="CONNECTOR",
             component="AzureBlobConnector",

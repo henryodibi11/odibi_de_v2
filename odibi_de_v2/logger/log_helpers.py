@@ -3,6 +3,38 @@ from odibi_de_v2.core.enums import ErrorType
 from .log_singleton import get_logger
 
 
+def initialize_logger(metadata_dict: dict):
+    """
+    Initialize the global logger with dynamic runtime metadata.
+
+    This utility injects project-specific metadata (e.g., project name, table, domain)
+    into the singleton logger instance. It clears any previous context and applies
+    the new values immediately.
+
+    Args:
+        metadata_dict (dict): Dictionary of metadata fields to inject, such as
+            {
+                "project": "OEEIngestion",
+                "table": "vw_dim_plantprocess",
+                "domain": "Energy"
+            }
+
+    Returns:
+        DynamicLogger: The updated logger instance with applied metadata.
+
+    Example:
+        >>> from odibi_de.logger.log_helpers import initialize_logger
+        >>> logger = initialize_logger({
+        ...     "project": "MyPipeline",
+        ...     "table": "sales_orders",
+        ...     "domain": "Commercial"
+        ... })
+        >>> logger.info("Logger initialized with custom context")
+    """
+    logger = get_logger()
+    logger.metadata_manager.update_metadata(clear_existing=True, **metadata_dict)
+    return logger
+
 def log_info(message: str):
     """
     Log an info-level message using the global logger.

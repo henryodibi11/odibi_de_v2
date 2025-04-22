@@ -24,6 +24,7 @@ class LocalConnection(BaseConnection):
         - @enforce_types: Enforces input type safety
 
     Example Usage:
+        >>> from odibi_de_v2.connector import LocalConnection
         >>> connector = LocalConnection()
         >>> path = connector.get_file_path(
         ...     container="local",  # Not used, but accepted for interface consistency
@@ -80,6 +81,13 @@ class LocalConnection(BaseConnection):
         Returns:
             None
         """
+        log_and_optionally_raise(
+            module="CONNECTOR",
+            component="AzureBlobConnector",
+            method="get_file_path",
+            error_type=ErrorType.NO_ERROR,
+            message=f"Local file systems do not require authentication.",
+            level="INFO")
         return None
 
 

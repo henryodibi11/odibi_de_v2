@@ -38,6 +38,8 @@ class DataType(Enum):
     PARQUET = 'parquet'
     DELTA = 'delta'
     CLOUDFILES = 'cloudFiles'
+    SQL = 'sql'
+    API = 'api'
 
 
 class CloudService(Enum):
