@@ -39,6 +39,8 @@ from .storage import (
     set_registry_package,
     get_function_registry)
 
+from .workflows import run_bronze_pipeline
+
 __all__=[
     "init_spark_with_azure_secrets",
     "init_sql_config_connection",
@@ -66,5 +68,6 @@ __all__=[
     "set_registry_package",
     "get_function_registry",
     "log_to_centralized_table",
-    "run_notebook_with_logging"
+    "run_notebook_with_logging",
+    "run_bronze_pipeline"
 ]

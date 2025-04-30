@@ -58,7 +58,7 @@ from .decorators import (
 from .general_utils import send_email_using_logic_app
 from .thermo_utils import compute_steam_properties
 from .eval_utils import safe_eval_lambda
-
+from .email_utils import build_ingestion_email_html
 
 
 
@@ -98,5 +98,8 @@ __all__ = [
     "compute_steam_properties",
 
     # eval utils
-    "safe_eval_lambda"
+    "safe_eval_lambda",
+
+    # email utils
+    "build_ingestion_email_html"
 ]
