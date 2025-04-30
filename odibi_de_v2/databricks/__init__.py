@@ -1,7 +1,7 @@
 from .bootstrap import (
     init_spark_with_azure_secrets,
     init_sql_config_connection,
-    load_config_tables_azure,
+    load_ingestion_config_tables,
     BuildConnectionFromConfig
 )
 
@@ -11,7 +11,9 @@ from .utils import (
     add_hash_columns,
     load_api_secrets,
     call_api_core,
-    prepare_api_reader_kwargs_from_config
+    prepare_api_reader_kwargs_from_config,
+    log_to_centralized_table,
+    run_notebook_with_logging
 )
 
 from .config import(
@@ -41,7 +43,7 @@ __all__=[
     "init_spark_with_azure_secrets",
     "init_sql_config_connection",
     "get_secret",
-    "load_config_tables_azure",
+    "load_ingestion_config_tables",
     "IngestionConfigConstructor",
     "BuildConnectionFromConfig",
     "TargetOptionsResolver",
@@ -62,5 +64,7 @@ __all__=[
     "prepare_api_reader_kwargs_from_config",
     "validate_save_function_signature",
     "set_registry_package",
-    "get_function_registry"
+    "get_function_registry",
+    "log_to_centralized_table",
+    "run_notebook_with_logging"
 ]

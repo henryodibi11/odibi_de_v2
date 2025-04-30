@@ -1,7 +1,8 @@
 from .columns import(
     has_columns,
     drop_columns,
-    select_columns
+    select_columns,
+    transform_column_name
 )
 from .datetime_utils import(
     convert_to_datetime,
@@ -25,6 +26,7 @@ __all__ = [
     "has_columns",
     "drop_columns",
     "select_columns",
+    "transform_column_name"
 
     # datetime_utils
     "convert_to_datetime",

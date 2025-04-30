@@ -198,3 +198,78 @@ def slugify(text: str) -> str:
         'energy_report_2025'
     """
     return re.sub(r"[^\w]+", "_", text.strip()).strip("_").lower()
+
+
+def transform_column_name(
+    column_name: str,
+    case_style: str,
+    validate: bool = True
+) -> str:
+    """
+    Transform a column name to the specified case style.
+
+    Args:
+        column_name (str): The column name to transform.
+        case_style (str): The desired case style. Supported styles are:
+                        - "snake_case"
+                        - "camelCase"
+                        - "PascalCase"
+                        - "lowercase"
+                        - "uppercase"
+        validate (bool): Whether to validate the inputs (default is True).
+
+    Returns:
+        str: The transformed column name.
+
+    Example:
+        ```python
+        from my_module import (
+            PandasValidationUtils
+        )
+
+        # Transform to snake_case
+        result = PandasValidationUtils.transform_column_name(
+            column_name="My Column Name", case_style="snake_case"
+        )
+        print(result)  # Output: my_column_name
+
+        # Transform to camelCase
+        result = PandasValidationUtils.transform_column_name(
+            column_name="My Column Name", case_style="camelCase"
+        )
+        print(result)  # Output: myColumnName
+
+        # Transform to PascalCase
+        result = PandasValidationUtils.transform_column_name(
+            column_name="My Column Name", case_style="PascalCase"
+        )
+        print(result)  # Output: MyColumnName
+
+        # Transform to lowercase
+        result = PandasValidationUtils.transform_column_name(
+            column_name="My Column Name", case_style="lowercase"
+        )
+        print(result)  # Output: my column name
+
+        # Transform to uppercase
+        result = PandasValidationUtils.transform_column_name(
+            column_name="My Column Name", case_style="uppercase"
+        )
+        print(result)  # Output: MY COLUMN NAME
+        ```
+    """
+    if case_style == "snake_case":
+        return re.sub(
+            r"(_|-|\s)+", " ", column_name).lower().replace(" ", "_")
+    elif case_style == "camelCase":
+        temp = re.sub(
+            r"(_|-|\s)+", " ", column_name).title().replace(" ", "")
+        return temp[0].lower() + temp[1:]
+    elif case_style == "PascalCase":
+        return re.sub(
+            r"(_|-|\s)+", " ", column_name).title().replace(" ", "")
+    elif case_style == "lowercase":
+        return column_name.lower()
+    elif case_style == "uppercase":
+        return column_name.upper()
+    return column_name

@@ -7,6 +7,7 @@ pyarrow
 azure-storage-blob
 pyspark
 pyodbc
+iapws
 
 # Optional: add dev tools at the bottom
 pytest

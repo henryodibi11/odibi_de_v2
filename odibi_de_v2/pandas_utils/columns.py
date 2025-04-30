@@ -35,3 +35,24 @@ def select_columns(df: pd.DataFrame, columns_to_keep: List[str]) -> pd.DataFrame
    """
    existing = [col for col in columns_to_keep if col in df.columns]
    return df[existing]
+
+
+import re
+
+def transform_column_name(name: str, case_style: str) -> str:
+    cleaned = re.sub(r"[^\w\s]", "", name).strip()
+    words = re.split(r"\s+|_", cleaned)
+
+    match case_style:
+        case "snake_case":
+            return "_".join(w.lower() for w in words)
+        case "camelCase":
+            return words[0].lower() + "".join(w.title() for w in words[1:])
+        case "PascalCase":
+            return "".join(w.title() for w in words)
+        case "lowercase":
+            return "".join(words).lower()
+        case "uppercase":
+            return "".join(words).upper()
+        case _:
+            raise ValueError(f"Unsupported case style: {case_style}")

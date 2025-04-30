@@ -13,7 +13,8 @@ setup(
         "azure-storage-blob",
         "pyspark",
         "pyodbc",
-        "delta-spark"
+        "delta-spark",
+        "iapws"
     ],
     author="Henry Odibi",
     author_email="henryodibi@outlook.com",

@@ -7,6 +7,8 @@ from .saver_provider import SaverProvider
 from .base_connector import BaseConnection
 from .enums import (
     DataType, CloudService, Framework, ErrorType)
+from .transformer import IDataTransformer
+from .query_builder import BaseQueryBuilder
 
 
 __all__ = [
@@ -21,5 +23,7 @@ __all__ = [
     "CloudService",
     "Framework",
     "ErrorType",
-    "BaseConnection"
+    "BaseConnection",
+    "IDataTransformer",
+    "BaseQueryBuilder"
 ]

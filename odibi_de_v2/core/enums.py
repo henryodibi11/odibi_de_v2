@@ -226,6 +226,8 @@ class ErrorType(Enum):
         Runtime_Error (str): Indicates a runtime error.
         READ_ERROR (str): Indicates a read error.
         SAVE_ERROR (str): Indicates a save error.
+        INIT_ERROR (str): Indicates an error in the init.
+        TRANSFORM_ERROR (str): Indicates a transform error.
 
     Example:
         >>> ErrorType.VALUE_ERROR.value
@@ -248,3 +250,5 @@ class ErrorType(Enum):
     Runtime_Error = "Runtime_Error"
     READ_ERROR = "READ_ERROR"
     SAVE_ERROR = "SAVE_ERROR"
+    INIT_ERROR = "INIT_ERROR"
+    TRANSFORM_ERROR = "TRANSFORM_ERROR"

@@ -5,7 +5,7 @@ import pandas as pd
 from pyspark.sql import SparkSession
 
 
-def load_config_tables_azure(
+def load_ingestion_config_tables(
     host: str,
     database: str,
     user: str,
@@ -16,7 +16,7 @@ def load_config_tables_azure(
     spark: SparkSession
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Loads configuration data for source and target from an Azure SQL Server and returns them as Pandas DataFrames.
+    Loads configuration data for source and target from a SQL Server and returns them as Pandas DataFrames.
 
     This function queries the SQL Server based on provided source and target IDs, and project details. It retrieves
     configuration data for both ingestion sources and targets, which are then converted to Pandas DataFrames for
@@ -63,8 +63,7 @@ def load_config_tables_azure(
         database=database,
         user=user,
         password=password,
-        framework=Framework.SPARK  # Still using Spark reader underneath
-    )
+        framework=Framework.SPARK)
 
     provider = ReaderProvider(connector=connection,local_engine=Framework.SPARK)
 
