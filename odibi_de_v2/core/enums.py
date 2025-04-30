@@ -38,6 +38,8 @@ class DataType(Enum):
     PARQUET = 'parquet'
     DELTA = 'delta'
     CLOUDFILES = 'cloudFiles'
+    SQL = 'sql'
+    API = 'api'
 
 
 class CloudService(Enum):
@@ -65,7 +67,7 @@ class Framework(Enum):
         PANDAS (str): Represents the Pandas data analysis library.
         SPARK (str): Represents the Apache Spark distributed data
         processing framework.
-        SNOWFLAKE (str): Represents the Snowflake cloud data platform.
+        LOCAL (str): Represents local execution without a distributed framework.
 
     Example:
         >>> Framework.PANDAS.value
@@ -76,6 +78,7 @@ class Framework(Enum):
     """
     PANDAS = "pandas"
     SPARK = "spark"
+    LOCAL = "local"
 
 
 class ValidationType(Enum):
@@ -219,6 +222,12 @@ class ErrorType(Enum):
         TYPE_ERROR (str): Indicates mismatched or unexpected data type.
         UNKNOWN (str): Default fallback for uncategorized errors.
         NO_ERROR (str): Indicates no error.
+        SCHEMA_ERROR (str): Indicates schema validation failure.
+        Runtime_Error (str): Indicates a runtime error.
+        READ_ERROR (str): Indicates a read error.
+        SAVE_ERROR (str): Indicates a save error.
+        INIT_ERROR (str): Indicates an error in the init.
+        TRANSFORM_ERROR (str): Indicates a transform error.
 
     Example:
         >>> ErrorType.VALUE_ERROR.value
@@ -237,3 +246,9 @@ class ErrorType(Enum):
     TYPE_ERROR = "TYPE_ERROR"
     UNKNOWN = "UNKNOWN"
     NO_ERROR = "NO_ERROR"
+    SCHEMA_ERROR = "SCHEMA_ERROR"
+    Runtime_Error = "Runtime_Error"
+    READ_ERROR = "READ_ERROR"
+    SAVE_ERROR = "SAVE_ERROR"
+    INIT_ERROR = "INIT_ERROR"
+    TRANSFORM_ERROR = "TRANSFORM_ERROR"

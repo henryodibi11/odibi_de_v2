@@ -15,7 +15,8 @@ from .string_utils import (
     to_pascal_case,
     remove_extra_whitespace,
     is_null_or_blank,
-    slugify
+    slugify,
+    transform_column_name
 )
 
 from .file_utils import (
@@ -30,7 +31,8 @@ from .file_utils import (
 from .validation_utils import (
     validate_required_keys,
     validate_columns_exist,
-    validate_supported_format
+    validate_supported_format,
+    validate_kwargs_match_signature
 )
 
 from .env_utils import (
@@ -41,6 +43,25 @@ from .env_utils import (
     get_env_variable
 )
 
+from .method_chain import run_method_chain
+
+from .decorators import (
+    benchmark,
+    validate_core_contracts,
+    ensure_output_type,
+    log_call,
+    enforce_types,
+    validate_non_empty,
+    validate_schema,
+    validate_input_types
+)
+from .general_utils import send_email_using_logic_app
+from .thermo_utils import compute_steam_properties
+from .eval_utils import safe_eval_lambda
+
+
+
+
 __all__ = [
     # type checks
     "is_empty_dict", "is_valid_type", "is_non_empty_string", "is_boolean",
@@ -48,7 +69,7 @@ __all__ = [
     # string utils
     "normalize_string", "clean_column_name", "standardize_column_names",
     "to_snake_case", "to_kebab_case", "to_camel_case", "to_pascal_case",
-    "remove_extra_whitespace", "is_null_or_blank", "slugify",
+    "remove_extra_whitespace", "is_null_or_blank", "slugify", "transform_column_name",
 
     # file utils
     "get_file_extension", "get_stem_name", "extract_file_name",
@@ -56,9 +77,26 @@ __all__ = [
 
     # validation utils
     "validate_required_keys", "validate_columns_exist",
-    "validate_supported_format",
+    "validate_supported_format","validate_kwargs_match_signature",
 
     # env utils
     "is_running_in_databricks", "is_running_in_notebook",
-    "is_local_env", "get_current_env", "get_env_variable"
+    "is_local_env", "get_current_env", "get_env_variable",
+
+    # method chain
+    "run_method_chain",
+
+    # decorators
+    "benchmark", "validate_core_contracts", "ensure_output_type",
+    "log_call", "enforce_types", "validate_non_empty", "validate_schema",
+    "validate_input_types",
+
+    # general utils
+    "send_email_using_logic_app",
+
+    # thermo utils
+    "compute_steam_properties",
+
+    # eval utils
+    "safe_eval_lambda"
 ]

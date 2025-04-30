@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Any
-
+from odibi_de_v2.logger import (
+    log_and_optionally_raise)
+from odibi_de_v2.core.enums import ErrorType
 
 class DataReader(ABC):
     """
@@ -20,13 +22,11 @@ class DataReader(ABC):
         >>> import pandas as pd
         >>> class CSVReader(DataReader):
         ...     def read_data(self, **kwargs):
-        ...         return pd.read_csv(self.file_path)
+        ...         return pd.read_csv()
 
         >>> reader = CSVReader("example.csv")
         >>> df = reader.read_sample_data(n=10)
     """
-    def __init__(self, file_path: str):
-        self.file_path = file_path
 
     @abstractmethod
     def read_data(self, **kwargs) -> Any:
@@ -62,17 +62,21 @@ class DataReader(ABC):
             >>> reader = CSVReader("example.csv")
             >>> sample_df = reader.read_sample_data(n=5)
         """
-        try:
-            print(
-                "info", f"Reading a sample of {n} rows from {self.file_path}")
-            data = self.read_data(**kwargs).head(n)
-            print(
-                "info",
-                f"Successfully read a sample of {n} rows from {self.file_path}"
-                )
-            return data
-        except Exception as e:
-            print(
-                "error",
-                f"Failed to read sample data from {self.file_path}: {e}")
-            raise
+        log_and_optionally_raise(
+            module="INGESTION",
+            component="DataReader",
+            method="read_sample_data",
+            error_type=ErrorType.NO_ERROR,
+            message=(
+                f"Reading a sample of {n} rows"),
+            level="INFO")
+        data = self.read_data(**kwargs).head(n)
+        log_and_optionally_raise(
+            module="INGESTION",
+            component="DataReader",
+            method="read_sample_data",
+            error_type=ErrorType.NO_ERROR,
+            message=(
+                f"Successfully read a sample of {n} rows"),
+            level="INFO")
+        return data

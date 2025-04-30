@@ -4,9 +4,11 @@ from .reader_provider import ReaderProvider
 from .saver import DataSaver
 from .saver_factory import SaverFactory
 from .saver_provider import SaverProvider
-from .cloud_connector import CloudConnector
+from .base_connector import BaseConnection
 from .enums import (
     DataType, CloudService, Framework, ErrorType)
+from .transformer import IDataTransformer
+from .query_builder import BaseQueryBuilder
 
 
 __all__ = [
@@ -20,5 +22,8 @@ __all__ = [
     "DataType",
     "CloudService",
     "Framework",
-    "ErrorType"
+    "ErrorType",
+    "BaseConnection",
+    "IDataTransformer",
+    "BaseQueryBuilder"
 ]

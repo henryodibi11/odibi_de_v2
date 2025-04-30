@@ -1,5 +1,5 @@
 import pytest
-from logger.metadata_manager import MetadataManager
+from odibi_de_v2.logger.metadata_manager import MetadataManager
 
 
 def test_initial_metadata_is_empty():

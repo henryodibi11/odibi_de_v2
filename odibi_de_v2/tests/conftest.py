@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import MagicMock
-from logger.metadata_manager import MetadataManager
-from logger.dynamic_logger import DynamicLogger
-from connector.azure.azure_blob_connector import AzureBlobConnector
+from odibi_de_v2.logger.metadata_manager import MetadataManager
+from odibi_de_v2.logger.dynamic_logger import DynamicLogger
+from odibi_de_v2.connector import AzureBlobConnection
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def mock_connector():
 
 @pytest.fixture
 def connector():
-    return AzureBlobConnector(account_name="myaccount", account_key="fakekey")
+    return AzureBlobConnection(account_name="myaccount", account_key="fakekey")
 
 
 @pytest.fixture

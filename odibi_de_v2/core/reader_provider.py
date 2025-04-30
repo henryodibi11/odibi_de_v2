@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from .reader_factory import ReaderFactory
 from .enums import DataType
-from .cloud_connector import CloudConnector
+from .base_connector import BaseConnection
+from .reader import DataReader
 
 
 class ReaderProvider(ABC):
@@ -14,7 +15,7 @@ class ReaderProvider(ABC):
         data_type (DataType): The type of data to be read.
             For Example:
                 DataType.CSV
-        connector (CloudConnector): Instance of a CloudConnector.
+        connector (BaseConnection): Instance of a BaseConnection.
 
     Methods:
         create_reader(storage_unit: str, object_name: str):
@@ -24,11 +25,11 @@ class ReaderProvider(ABC):
     Example:
         >>> from my_module.reader_factory import PandasReaderFactory
         >>> from my_module.enums import DataType
-        >>> from my_odule.cloud_connector import CloudConnector
+        >>> from my_odule.cloud_connector import BaseConnection
         >>> from my_module import PandasReaderProvider
 
         >>> factory = PandasReaderFactory()
-        >>> connector = CloudConnector(
+        >>> connector = BaseConnection(
         ...     "account_name",
         ...     "account_key")
         >>> provider = PandasReaderProvider(
@@ -44,14 +45,14 @@ class ReaderProvider(ABC):
         self,
         factory: ReaderFactory,
         data_type: DataType,
-        connector: CloudConnector = None
+        connector: BaseConnection = None
     ):
         self.factory = factory
         self.data_type = data_type
         self.connector = connector
 
     @abstractmethod
-    def create_reader(self, storage_unit: str, object_name: str):
+    def create_reader(self, storage_unit: str, object_name: str) -> DataReader:
         """
         Creates and returns a reader based on the configured factory,
         data type, and connector.
@@ -69,7 +70,8 @@ class ReaderProvider(ABC):
             object_name: The path to the data
 
         Returns:
-            Any: A concrete reader instance that implements the DataReader
-                interface.
+            DataReader: A fully initialized reader instance (e.g, PandasDataReader
+                or SparkDataReder) that conforms to the DataReader interface and is
+                readey to load data from the specified storage unit and object name.
         """
         pass

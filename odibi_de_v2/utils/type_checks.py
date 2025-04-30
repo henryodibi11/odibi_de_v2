@@ -16,6 +16,8 @@ def is_empty_dict(d: Any) -> bool:
             True
         >>> is_empty_dict({'a': 1})
             False
+        >>> is_empty_dict([]) # Not a dict
+            False
     """
     return isinstance(d, dict) and not d
 
@@ -36,6 +38,8 @@ def is_valid_type(obj: Any, expected_types: tuple) -> bool:
                 True
             >>> is_valid_type("5", (int, float))
                 False
+            >>> is_valid_type(None, (type(None), str))
+                True
     """
     return isinstance(obj, expected_types)
 
@@ -54,6 +58,10 @@ def is_non_empty_string(value: Any) -> bool:
         >>> is_non_empty_string("hello")
             True
         >>> is_non_empty_string("")
+            False
+        >>> is_non_empty_string(None)
+            False
+        >>> is_non_empty_string(1)
             False
     """
     return isinstance(value, str) and value.strip() != ""

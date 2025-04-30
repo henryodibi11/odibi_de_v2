@@ -1,9 +1,9 @@
 # import pytest
 from unittest.mock import patch, MagicMock
-from core.enums import Framework
+from odibi_de_v2.core.enums import Framework
 
 
-@patch("connector.azure.azure_blob_connector.BlobServiceClient")
+@patch("odibi_de_v2.connector.azure.azure_blob_connector.BlobServiceClient")
 def test_get_connection(mock_blob_client, connector):
     mock_instance = MagicMock()
     mock_blob_client.return_value = mock_instance

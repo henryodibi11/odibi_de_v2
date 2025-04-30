@@ -36,18 +36,6 @@ def has_columns(df: pd.DataFrame, required_columns: List[str]) -> bool:
     return all(col in df.columns for col in required_columns)
 
 
-def is_list_of_strings(obj: Any) -> bool:
-    """
-    Checks if an object is a list of strings.
-
-    Args:
-        obj (Any): Object to check.
-
-    Returns:
-        bool: True if obj is a list of strings, False otherwise.
-    """
-    return isinstance(obj, list) and all(isinstance(item, str) for item in obj)
-
 
 def is_empty(df: pd.DataFrame) -> bool:
     """

@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from .saver_factory import SaverFactory
-from .cloud_connector import CloudConnector
+from .base_connector import BaseConnection
 from .enums import DataType
+from . saver import DataSaver
 
 
 class SaverProvider(ABC):
@@ -14,7 +15,7 @@ class SaverProvider(ABC):
         data_type (DataType): The type of data to be read.
             For Example:
                 DataType.CSV
-        connector (CloudConnector): Instance of a CloudConnector.
+        connector (BaseConnection): Instance of a BaseConnection.
 
     Methods:
         create_saver(storage_unit: str, object_name: str):
@@ -24,11 +25,11 @@ class SaverProvider(ABC):
     Example:
         >>> from my_module.saver_factory import PandasSaverFactory
         >>> from my_module.enums import DataType
-        >>> from my_odule.cloud_connector import CloudConnector
+        >>> from my_module import AzureBlobConnection
         >>> from my_module import PandasSaverProvider
 
         >>> factory = PandasSaverFactory()
-        >>> connector = CloudConnector(
+        >>> connector = AzureBlobConnection(
         ...     "account_name",
         ...     "account_key")
         >>> provider = PandasSaverProvider(
@@ -46,7 +47,7 @@ class SaverProvider(ABC):
     def __init__(
         self, factory: SaverFactory,
         data_type: DataType,
-        connector: CloudConnector
+        connector: BaseConnection
     ):
         self.factory = factory
         self.data_type = data_type
@@ -57,7 +58,7 @@ class SaverProvider(ABC):
         self,
         storage_unit: str,
         object_name: str
-    ):
+        ) -> DataSaver:
         """
         Creates and returns a saver based on the configured factory,
         data type, and connector.
@@ -75,7 +76,8 @@ class SaverProvider(ABC):
             object_name: The path to the data
 
         Returns:
-            Any: A concrete saver instance that implements the DataSaver
-                interface.
+            DataSaver: A fully initialized reader instance (e.g, PandasDataSaver
+                or SparkDataReder) that conforms to the DataSaver interface and is
+                readey to saver data to the specified storage unit and object name.
         """
         pass

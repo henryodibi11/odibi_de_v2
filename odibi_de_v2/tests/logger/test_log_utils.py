@@ -1,5 +1,5 @@
-from logger.log_utils import log_info, log_error
-from logger.log_singleton import refresh_logger
+from odibi_de_v2.logger.log_utils import log_info, log_error
+from odibi_de_v2.logger.log_singleton import refresh_logger
 
 
 def test_log_info_is_captured():
