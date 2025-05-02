@@ -60,6 +60,8 @@ from .thermo_utils import compute_steam_properties
 from .eval_utils import safe_eval_lambda
 from .email_utils import build_ingestion_email_html
 
+from .template_generators import create_bronze_template
+
 
 
 __all__ = [
@@ -101,5 +103,8 @@ __all__ = [
     "safe_eval_lambda",
 
     # email utils
-    "build_ingestion_email_html"
+    "build_ingestion_email_html",
+
+    # template generators
+    "create_bronze_template"
 ]

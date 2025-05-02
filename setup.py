@@ -2,7 +2,7 @@
 from setuptools import setup, find_packages
 setup(
     name="odibi_de_v2",
-    version="0.1.0",  # Update as needed
+    version="0.1.0",
     packages=find_packages(),
     install_requires=[
         "pandas",
@@ -14,10 +14,15 @@ setup(
         "pyspark",
         "pyodbc",
         "delta-spark",
-        "iapws"
+        "iapws",
+        "nbformat",
+        "ipywidgets"
+        "pytest",
+        "black",
+        "mypy"
     ],
     author="Henry Odibi",
-    author_email="henryodibi@outlook.com",
+    author_email="odibiengineering@gmail.com",
     description="A modular and scalable data engineering framework using Pandas, Spark, and Azure.",
     long_description="See full documentation at https://github.com/henryodibi11/odibi_de_v2",
     long_description_content_type="text/markdown",

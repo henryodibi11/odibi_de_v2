@@ -8,6 +8,8 @@ azure-storage-blob
 pyspark
 pyodbc
 iapws
+nbformat
+ipywidgets
 
 # Optional: add dev tools at the bottom
 pytest

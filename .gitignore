@@ -4,24 +4,44 @@ __pycache__/
 *.so
 
 # Jupyter Notebooks
-*.ipynb_checkpoints
+.ipynb_checkpoints/
+.ipynb_out/
 
-# Virtual environment
+# Virtual environments
 .venv/
 env/
+venv/
 
-# VSCode
+# VSCode settings
 .vscode/
 
-# Databricks
+# Databricks artifacts
 .databricks/
+*.dbc
+*.dbarchive
 
 # Pytest cache
 .pytest_cache/
 
-# OS
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.whl
+
+# OS junk
 .DS_Store
 Thumbs.db
 
 # Logs
 *.log
+
+# Secrets (if you ever use dotenv)
+.env
+
+# Generated template outputs (optional)
+bronze_templates/
+silver_templates/
+
+# Local workflow runners
+/workflows/
