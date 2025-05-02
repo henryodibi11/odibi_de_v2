@@ -16,7 +16,7 @@ setup(
         "delta-spark",
         "iapws",
         "nbformat",
-        "ipywidgets"
+        "ipywidgets",
         "pytest",
         "black",
         "mypy"
