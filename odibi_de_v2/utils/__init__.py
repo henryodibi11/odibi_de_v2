@@ -62,6 +62,8 @@ from .email_utils import build_ingestion_email_html
 
 from .template_generators import create_bronze_template
 
+from .tree_visualizer import print_tree
+
 
 
 __all__ = [
@@ -106,5 +108,8 @@ __all__ = [
     "build_ingestion_email_html",
 
     # template generators
-    "create_bronze_template"
+    "create_bronze_template",
+
+    # tree visualizer
+    "print_tree"
 ]
