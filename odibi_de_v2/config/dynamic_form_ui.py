@@ -2,7 +2,6 @@ import ipywidgets as widgets
 from IPython.display import display, Javascript
 import json
 
-
 class _DynamicFormUI:
     def __init__(self, field_specs: dict):
         self.field_specs = field_specs
@@ -28,6 +27,7 @@ class _DynamicFormUI:
         input_widget = self.build_value_widget(input_type, spec)
         row = widgets.HBox([widgets.Label(key, layout=widgets.Layout(width="120px")), type_dropdown, input_widget])
         row.extract_value = lambda: self._extract_widget_value(type_dropdown.value, input_widget)
+        row.set_value = lambda val: self._set_widget_value(type_dropdown.value, input_widget, val)
         return row
 
     def build_value_widget(self, value_type, spec=None):
@@ -40,8 +40,7 @@ class _DynamicFormUI:
             return self._build_list_editor()
         elif value_type == "dict":
             return self._build_dict_editor()
-        else:
-            return widgets.Text(value="")
+        return widgets.Text(value="")
 
     def _extract_widget_value(self, value_type, widget):
         if value_type == "string":
@@ -53,10 +52,28 @@ class _DynamicFormUI:
         elif value_type == "dict":
             return widget.extract_dict()
 
+    def _set_widget_value(self, value_type, widget, val):
+        if value_type == "string":
+            widget.value = str(val)
+        elif value_type == "dropdown":
+            widget.value = val
+        elif value_type == "list":
+            for item in val:
+                widget.add_item(item)
+        elif value_type == "dict":
+            for k, v in val.items():
+                widget.add_kv_row(None, k, v)
+
     def _build_list_editor(self):
         items = []
 
-        def build_list_item(value_type="string"):
+        def build_list_item(val=None):
+            value_type = "string"
+            if isinstance(val, list):
+                value_type = "list"
+            elif isinstance(val, dict):
+                value_type = "dict"
+
             type_dropdown = widgets.Dropdown(options=["string", "list", "dict"], value=value_type, layout=widgets.Layout(width="90px"))
             value_widget = self.build_value_widget(value_type)
             remove_btn = widgets.Button(description="X", layout=widgets.Layout(width="30px"), button_style='danger')
@@ -72,12 +89,21 @@ class _DynamicFormUI:
             type_dropdown.observe(on_type_change, names="value")
             remove_btn.on_click(on_remove)
             item = widgets.HBox([type_dropdown, value_widget, remove_btn])
-            return item
-
-        def add_item(_=None):
-            item = build_list_item()
             items.append(item)
             container.children = items
+
+            # Set value
+            if value_type == "string":
+                value_widget.value = str(val)
+            elif value_type == "list":
+                for sub in val:
+                    value_widget.add_item(sub)
+            elif value_type == "dict":
+                for k, v in val.items():
+                    value_widget.add_kv_row(None, k, v)
+
+        def add_item(val=None):
+            build_list_item(val)
 
         def extract_list():
             result = []
@@ -94,19 +120,25 @@ class _DynamicFormUI:
 
         container = widgets.VBox()
         add_btn = widgets.Button(description="Add Item", button_style="info")
-        add_btn.on_click(add_item)
+        add_btn.on_click(lambda _: add_item())
         wrapper = widgets.VBox([container, add_btn])
         wrapper.extract_list = extract_list
-        add_item()
+        wrapper.add_item = add_item
         return wrapper
 
     def _build_dict_editor(self):
         kv_rows = []
 
-        def build_kv_row(key="", value_type="string"):
+        def build_kv_row(_, key="", val=None):
+            value_type = "string"
+            if isinstance(val, list):
+                value_type = "list"
+            elif isinstance(val, dict):
+                value_type = "dict"
+
             key_input = widgets.Text(value=key, layout=widgets.Layout(width="150px"))
             type_dropdown = widgets.Dropdown(options=["string", "list", "dict"], value=value_type, layout=widgets.Layout(width="90px"))
-            value_input = self.build_value_widget(value_type)
+            value_widget = self.build_value_widget(value_type)
             remove_btn = widgets.Button(description="X", layout=widgets.Layout(width="30px"), button_style='danger')
 
             def on_type_change(change):
@@ -119,13 +151,22 @@ class _DynamicFormUI:
 
             type_dropdown.observe(on_type_change, names="value")
             remove_btn.on_click(on_remove)
-            row = widgets.HBox([key_input, type_dropdown, value_input, remove_btn])
-            return row
-
-        def add_kv_row(_=None):
-            row = build_kv_row()
+            row = widgets.HBox([key_input, type_dropdown, value_widget, remove_btn])
             kv_rows.append(row)
             container.children = kv_rows
+
+            # Set value
+            if value_type == "string":
+                value_widget.value = str(val)
+            elif value_type == "list":
+                for i in val:
+                    value_widget.add_item(i)
+            elif value_type == "dict":
+                for k, v in val.items():
+                    value_widget.add_kv_row(None, k, v)
+
+        def add_kv_row(_, key="", val=None):
+            build_kv_row(None, key, val)
 
         def extract_dict():
             result = {}
@@ -144,50 +185,65 @@ class _DynamicFormUI:
 
         container = widgets.VBox()
         add_btn = widgets.Button(description="Add Field", button_style="info")
-        add_btn.on_click(add_kv_row)
+        add_btn.on_click(lambda _: add_kv_row(None))
         wrapper = widgets.VBox([container, add_btn])
         wrapper.extract_dict = extract_dict
-        add_kv_row()
+        wrapper.add_kv_row = add_kv_row
         return wrapper
 
     def get_form_data(self):
         return {k: w.extract_value() for k, w in self.input_widgets.items()}
 
+
 class DynamicBatchFormUI:
     """
     A flexible, interactive UI for batch entry of structured configuration records using ipywidgets.
 
-    This UI allows users to dynamically add, edit, and remove multiple rows of structured data.
-    Each row is built using flexible field specifications that support nested types, including:
-    - Strings
-    - Lists (of strings, lists, or dicts)
-    - Dicts (with recursive depth)
-    - Dropdowns (with custom option lists)
+    This class renders a dynamic form that allows users to enter, edit, and remove multiple
+    configuration records based on a provided field specification. It supports nested fields, 
+    dropdowns, and presets for rapid form population.
 
-    It also supports named preset templates, which can pre-fill rows with commonly used records.
+    Attributes:
+        field_specs (dict): A dictionary defining the schema for each field. Each key represents a 
+            field name and maps to a dict with a required 'type' key and optional metadata. 
+            Supported types include:
+                - "string"
+                - "dropdown" (requires "options" list)
+                - "list" (supports nested "string", "list", "dict")
+                - "dict" (supports nested types recursively)
+        table_name (str): Optional name of the target table. Used for SQL generation.
+        preset_records (list[dict[str, list[dict]]]): A list containing a single dictionary where keys 
+            are preset names (e.g., "Steam Sensor") and values are lists of records (dicts) to pre-fill.
 
     Example:
         >>> field_specs = {
         ...     "Name": {"type": "string"},
         ...     "IsActive": {"type": "dropdown", "options": [0, 1]},
-        ...     "Tags": {"type": "list"},
-        ...     "Extra": {"type": "dict"}
+        ...     "Tags": {"type": "list"},  # Can contain strings or nested structures
+        ...     "Extra": {"type": "dict"}  # Nested key-value fields
         ... }
 
         >>> preset_records = [
         ...     {
-        ...         "Steam Sensor": {
-        ...             "Name": "Steam_001",
-        ...             "IsActive": 1,
-        ...             "Tags": ["flow", "pressure"],
-        ...             "Extra": {"unit": "psi", "source": "sensor_net"}
-        ...         },
-        ...         "Flow Sensor": {
-        ...             "Name": "Flow_002",
-        ...             "IsActive": 1,
-        ...             "Tags": ["flow"],
-        ...             "Extra": {"unit": "gpm"}
-        ...         }
+        ...         "Steam Sensor": [
+        ...             {
+        ...                 "Name": "Steam_001",
+        ...                 "IsActive": 1,
+        ...                 "Tags": [
+        ...                     "flow",
+        ...                     ["high", "low"],  # Nested list
+        ...                     {"category": "pressure", "range": ["min", "max"]}  # Dict inside list
+        ...                 ],
+        ...                 "Extra": {
+        ...                     "unit": "psi",
+        ...                     "source": "sensor_net",
+        ...                     "calibration": {
+        ...                         "date": "2024-01-01",
+        ...                         "method": "auto"
+        ...                     }
+        ...                 }
+        ...             }
+        ...         ]
         ...     }
         ... ]
 
@@ -198,10 +254,13 @@ class DynamicBatchFormUI:
         ... )
         >>> ui.render()
 
-    Attributes:
-        field_specs (dict): Dictionary defining the schema for each field. Must include 'type'.
-        table_name (str): Table name used in the generated SQL insert statement.
-        preset_records (list): Optional list of preset dicts. Each dict's keys serve as preset names.
+    Methods:
+        render(): Renders the full UI including buttons and row container.
+        get_rows(): Returns a list of record dicts currently entered in the UI.
+        _on_add_row(): Adds a new row to the form.
+        _on_apply_preset(): Loads one or more preset rows into the form.
+        _on_generate_json(): Prints and displays JSON-formatted output of all rows.
+        _on_generate_sql(): Prints and copies SQL INSERT statements for all rows.
     """
 
     def __init__(self, field_specs, table_name="YourTable", preset_records=None):
@@ -254,13 +313,9 @@ class DynamicBatchFormUI:
 
         if data:
             for key, val in data.items():
-                widget = form.input_widgets.get(key)
-                if widget:
-                    value_type = self.field_specs[key]["type"]
-                    if value_type == "string":
-                        widget.children[2].value = val
-                    elif value_type == "dropdown":
-                        widget.children[2].value = val
+                if key not in form.input_widgets:
+                    continue
+                form.input_widgets[key].set_value(val)
 
     def _on_apply_preset(self, _):
         selected = self.preset_dropdown.value
@@ -290,4 +345,3 @@ class DynamicBatchFormUI:
             navigator.clipboard.writeText(`{sql}`).then(() => {{
                 alert("SQL copied to clipboard!");
             }});"""))
-
