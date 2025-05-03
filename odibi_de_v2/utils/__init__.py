@@ -60,7 +60,7 @@ from .thermo_utils import compute_steam_properties
 from .eval_utils import safe_eval_lambda
 from .email_utils import build_ingestion_email_html
 
-from .template_generators import create_bronze_template
+from .template_generators import create_bronze_template, generate_preset_package
 
 from .tree_visualizer import print_tree
 
@@ -109,6 +109,7 @@ __all__ = [
 
     # template generators
     "create_bronze_template",
+    "generate_preset_package",
 
     # tree visualizer
     "print_tree"
