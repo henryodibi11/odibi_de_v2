@@ -43,6 +43,8 @@ def run_notebook_with_logging(
     import time
     from odibi_de_v2.utils import send_email_using_logic_app
     from odibi_de_v2.databricks import log_to_centralized_table
+    from pyspark.dbutils import DBUtils
+    dbutils = DBUtils(spark)
     try:
         start_time = time.time()
         dbutils.notebook.run(notebook_path, timeout_seconds=timeout_seconds)
