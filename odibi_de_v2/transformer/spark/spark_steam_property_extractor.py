@@ -71,6 +71,15 @@ class SparkSteamPropertyExtractor(IDataTransformer):
         >>> transformer = SparkSteamPropertyExtractor(input_params, output_properties, prefix="steam", units="imperial")
         >>> result_df = transformer.transform(df)
         >>> result_df.show()
+
+        >>> input_params = {
+        >>> "P": "lambda row: (row['Boiler Steam Pressure'] + 14.7) * 0.00689476",
+        >>> "T": "lambda row: (row['Boiler Steam Temperature'] - 32) * 5/9 + 273.15"}
+        >>> prefix = "keeler boiler"
+        >>> output_properties = ["h"]
+        >>> transformer = SparkSteamPropertyExtractor(input_params, output_properties, prefix="keeler boiler", units="imperial")
+        >>> result_df = transformer.transform(df_with_calculated_columns)
+        >>> result_df.display()
     """
 
     @enforce_types(strict=True)
