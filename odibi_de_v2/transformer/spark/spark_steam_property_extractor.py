@@ -8,48 +8,69 @@ from pyspark.sql.types import StructType, StructField, DoubleType
 from odibi_de_v2.core import IDataTransformer
 from odibi_de_v2.utils import (
     enforce_types, validate_non_empty, ensure_output_type,
-    benchmark, log_call
+    benchmark, log_call, compute_steam_properties, safe_eval_lambda
 )
 from odibi_de_v2.logger import log_exceptions
 from odibi_de_v2.core.enums import ErrorType
-from odibi_de_v2.utils import compute_steam_properties,safe_eval_lambda
 
+# Full IAPWS97-supported output properties with metric to imperial conversions
+UNIT_CONVERSION_FACTORS = {
+    "h": {"imperial": lambda x: x * 0.429922614, "metric": lambda x: x},         # kJ/kg → BTU/lb
+    "s": {"imperial": lambda x: x * 0.238845897, "metric": lambda x: x},         # kJ/kg-K → BTU/lb-R
+    "cp": {"imperial": lambda x: x * 0.238845897, "metric": lambda x: x},        # kJ/kg-K → BTU/lb-R
+    "cv": {"imperial": lambda x: x * 0.238845897, "metric": lambda x: x},
+    "rho": {"imperial": lambda x: x * 0.062428, "metric": lambda x: x},          # kg/m³ → lb/ft³
+    "v": {"imperial": lambda x: x * 16.0185, "metric": lambda x: x},             # m³/kg → ft³/lb
+    "T": {"imperial": lambda x: x * 9/5 - 459.67, "metric": lambda x: x},        # K → °F
+    "P": {"imperial": lambda x: x * 145.038, "metric": lambda x: x},             # MPa → psi
+    "mu": {"imperial": lambda x: x * 0.000672, "metric": lambda x: x},           # Pa.s → lb/ft-s
+    "k": {"imperial": lambda x: x * 0.577789, "metric": lambda x: x},            # W/m-K → BTU/hr-ft-R
+    "x": {"imperial": lambda x: x, "metric": lambda x: x},                       # Quality (dimensionless)
+}
 
 class SparkSteamPropertyExtractor(IDataTransformer):
     """
-    Initializes a SparkSteamPropertyExtractor object to compute specific steam properties
-    using IAPWS97 formulations on a Spark DataFrame.
+    A Spark transformer that computes steam properties using the IAPWS97 standard
+    and returns them as new columns in the DataFrame, with unit conversion support.
 
-    This class is designed to work with Spark DataFrames and utilizes Pandas UDFs to apply
-    the computations. The input parameters for the steam properties can be static values,
-    dynamic column names, or lambda functions. The computed properties are added to the
-    DataFrame with an optional prefix to distinguish them.
+    This class uses Pandas UDFs to compute thermodynamic properties like enthalpy,
+    entropy, specific heat, density, and more for each row in a Spark DataFrame.
+    The properties are derived from pressure and temperature inputs using the IAPWS97
+    formulation.
 
     Attributes:
-        input_params (Dict[str, object]): A dictionary mapping steam property names to values, column names,
-        or lambda functions that define how to compute each property from the DataFrame's rows.
-        output_properties (List[str]): A list of property names to compute, such as enthalpy ('h'), entropy ('s'),
-        heat capacity at constant pressure ('cp'), and heat capacity at constant volume ('cv').
-        prefix (str): An optional prefix used for naming the output columns in the DataFrame. Defaults to 'steam'.
+        input_params (Dict[str, object]): Dictionary mapping IAPWS97 input keys to either
+            column names, constant values, or stringified lambda expressions.
+        output_properties (List[str]): List of IAPWS97 properties to return (e.g., ['h', 's', 'cp']).
+        prefix (str): Prefix applied to output column names (default: "steam").
+        units (str): Output unit system, either "metric" (default) or "imperial".
 
-    Methods:
-        transform(data: DataFrame, **kwargs) -> DataFrame:
-            Applies the steam property calculations to the input DataFrame and returns a new DataFrame with the
-            results added as columns.
-
-    Raises:
-        ValueError: If the initialization parameters are empty or invalid.
-        RuntimeError: If an error occurs during the transformation process.
+    Supported Output Properties:
+        - h: Enthalpy (kJ/kg or BTU/lb)
+        - s: Entropy (kJ/kg-K or BTU/lb-R)
+        - cp: Specific heat at constant pressure
+        - cv: Specific heat at constant volume
+        - rho: Density (kg/m³ or lb/ft³)
+        - v: Specific volume (m³/kg or ft³/lb)
+        - T: Temperature (K or °F)
+        - P: Pressure (MPa or psi)
+        - mu: Dynamic viscosity (Pa.s or lb/ft-s)
+        - k: Thermal conductivity (W/m-K or BTU/hr-ft-R)
+        - x: Vapor quality (unitless)
 
     Example:
-        # Assuming `df` is a Spark DataFrame with the necessary columns
-        input_params = {
-            "temperature": "T",
-            "pressure": "P"
-        }
-        output_properties = ["h", "s"]
-        extractor = SparkSteamPropertyExtractor(input_params, output_properties)
-        result_df = extractor.transform(df)
+        >>> df = spark.createDataFrame([
+        >>>     {"Boiler_Pressure": 5.0, "Feedwater_Temp": 100.0},
+        >>>     {"Boiler_Pressure": 6.0, "Feedwater_Temp": 98.0}
+        >>> ])
+        >>> input_params = {
+        >>>     "P": "Boiler_Pressure",
+        >>>     "T": "lambda row: row['Feedwater_Temp'] + 273.15"
+        >>> }
+        >>> output_properties = ["h", "s", "cp", "rho", "v","mu","k"]
+        >>> transformer = SparkSteamPropertyExtractor(input_params, output_properties, prefix="steam", units="imperial")
+        >>> result_df = transformer.transform(df)
+        >>> result_df.show()
     """
 
     @enforce_types(strict=True)
@@ -62,82 +83,28 @@ class SparkSteamPropertyExtractor(IDataTransformer):
         error_type=ErrorType.INIT_ERROR,
         raise_type=ValueError,
     )
-    def __init__(self, input_params: Dict[str, object], output_properties: List[str], prefix: str = "steam"):
-        """
-        Initializes a new instance of the class with specified input parameters, output properties,
-        and an optional prefix.
-
-        This constructor processes input parameters through a `safe_eval_lambda` function, sets default
-        output properties if none are provided, and initializes the required input columns based on the
-        input parameters.
-
-        Args:
-            input_params (Dict[str, object]): A dictionary where keys are parameter names and values are
-                expressions (as strings) to be evaluated for those parameters.
-            output_properties (List[str]): A list of strings specifying the properties to be output.
-                Defaults to ["h", "s", "cp", "cv"] if not provided.
-            prefix (str, optional): A prefix string used in naming or logging within the class.
-                Defaults to "steam".
-
-        Attributes:
-            input_params (Dict[str, object]): Stores the evaluated input parameters.
-            output_properties (List[str]): Stores the list of output properties.
-            prefix (str): Stores the prefix.
-            required_input_cols (List[str]): Stores the list of required input columns derived from `input_params`.
-
-        Raises:
-            ValueError: If any of the expressions in `input_params` are invalid or cannot be safely evaluated.
-
-        Example:
-            >>> instance = MyClass({
-                    'temperature': 'T',
-                    'pressure': 'P'
-                }, ['enthalpy', 'entropy'])
-            Initializes an instance with temperature and pressure as input parameters and enthalpy and entropy
-                as output properties.
-        """
+    def __init__(
+        self,
+        input_params: Dict[str, object],
+        output_properties: List[str],
+        prefix: str = "steam",
+        units: str = "metric"
+    ):
         self.input_params = {k: safe_eval_lambda(v) for k, v in input_params.items()}
         self.output_properties = output_properties or ["h", "s", "cp", "cv"]
         self.prefix = prefix
+        self.units = units
         self.required_input_cols = self._extract_required_columns(input_params)
 
     def _extract_required_columns(self, params: Dict[str, Any]) -> List[str]:
-        """
-        Extracts the required column names from the provided parameters.
-
-        This method parses a dictionary of parameters to identify and extract column names that
-        are either directly referenced or used within lambda expressions. It supports two types of parameter values:
-        1. Direct column names as strings.
-        2. Lambda expressions as strings, where column names are accessed via the pattern `row['column_name']`.
-
-        Args:
-            params (Dict[str, Any]): A dictionary where the keys are parameter names and the values are
-            either strings representing column names or lambda expressions as strings that may contain
-            column references.
-
-        Returns:
-            List[str]: A list of unique column names extracted from the input dictionary. The list does
-            not contain duplicates.
-
-        Example:
-            >>> params = {
-                "filter": "age",
-                "calculation": "lambda row: row['salary'] + row['bonus']"
-            }
-            >>> _extract_required_columns(params)
-            ['age', 'salary', 'bonus']
-        """
         cols = set()
         for val in params.values():
             if isinstance(val, str):
                 if val.strip().startswith("lambda"):
-                    # Only extract referenced columns
                     cols.update(re.findall(r"row\[['\"](.*?)['\"]\]", val))
                 else:
-                    # Treat as direct column
                     cols.add(val)
         return list(cols)
-
 
     @enforce_types(strict=True)
     @ensure_output_type(DataFrame)
@@ -148,39 +115,6 @@ class SparkSteamPropertyExtractor(IDataTransformer):
         raise_type=RuntimeError,
     )
     def transform(self, data: DataFrame, **kwargs) -> DataFrame:
-        """
-        Transforms the input DataFrame by applying steam property computations to specified columns.
-
-        This method decorates an internal function with `pandas_udf` to perform complex computations
-        on steam properties based on the input DataFrame's columns. It dynamically constructs a DataFrame
-        from specified columns, applies a transformation function to compute steam properties,
-        and integrates these results back into the original DataFrame with new columns prefixed accordingly.
-
-        Args:
-            data (DataFrame): The input DataFrame containing the required columns for computation.
-            **kwargs: Arbitrary keyword arguments that can be passed to modify the behavior of the transformation.
-
-        Returns:
-            DataFrame: A DataFrame with the original data and new columns added for each steam property computed,
-            prefixed as specified by the instance's `prefix` attribute.
-
-        Raises:
-            KeyError: If any required columns specified in `self.required_input_cols` are missing from the
-            input DataFrame.
-            Exception: If any other error occurs during the computation of steam properties.
-
-        Example:
-            Assuming an instance `steam_transformer` of a class with this method, and `df` as a pandas DataFrame:
-
-            ```python
-            transformed_df = steam_transformer.transform(df)
-            print(transformed_df.head())
-            ```
-
-        Note:
-            This method requires that `self.required_input_cols`, `self.input_params`, `self.output_properties`,
-            and `self.prefix` are properly set in the class instance
-        """
         input_col_names = self.required_input_cols
 
         @pandas_udf(self._get_output_schema())
@@ -197,12 +131,19 @@ class SparkSteamPropertyExtractor(IDataTransformer):
                         args[k] = row[v]
                     else:
                         args[k] = v
-                return compute_steam_properties(row, args, self.output_properties, self.prefix)
+
+                raw_props = compute_steam_properties(row, args, self.output_properties, self.prefix)
+                print(raw_props)
+                converted_props = {
+                    key: UNIT_CONVERSION_FACTORS[prop][self.units](val) if val is not None else None
+                    for prop in self.output_properties
+                    for key, val in raw_props.items() if key.endswith(f"_{prop}")
+                }
+                return converted_props
 
             results = input_df.apply(row_to_dict, axis=1)
             return pd.DataFrame(results.tolist())
 
-        # Apply the UDF
         struct_col = apply_steam_props(*[data[col] for col in input_col_names])
         result = data.withColumn("__steam_struct__", struct_col)
 
@@ -215,25 +156,6 @@ class SparkSteamPropertyExtractor(IDataTransformer):
         return result.drop("__steam_struct__")
 
     def _get_output_schema(self) -> StructType:
-        """
-        Generates a Spark DataFrame schema based on prefixed output properties.
-
-        This method constructs a `StructType` schema for a DataFrame where each field corresponds to an
-        output property, prefixed with a specified string. Each field in the schema is of type
-        `DoubleType` and is nullable.
-
-        Returns:
-            StructType: A Spark DataFrame schema with fields named as `<prefix>_<property>`, where each
-            field is of type `DoubleType` and nullable.
-
-        Example:
-            Assuming `self.prefix` is 'output' and `self.output_properties` includes ['height', 'weight'],
-            the method will return a schema equivalent to:
-            StructType([
-                StructField("output_height", DoubleType(), True),
-                StructField("output_weight", DoubleType(), True)
-            ])
-        """
         return StructType([
             StructField(f"{self.prefix}_{prop}", DoubleType(), True)
             for prop in self.output_properties
