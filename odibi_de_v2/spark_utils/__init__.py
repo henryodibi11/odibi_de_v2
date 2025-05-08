@@ -19,6 +19,9 @@ from .validation import(
     is_flat_dataframe,
 )
 
+from .session import (
+    get_active_spark
+)
 
 __all__ = [
     # columns
@@ -39,5 +42,8 @@ __all__ = [
     "is_empty",
     "has_nulls_in_columns"
     "has_duplicate_columns",
-    "is_flat_dataframe"
+    "is_flat_dataframe",
+
+    # session
+    get_active_spark
 ]
