@@ -65,7 +65,7 @@ class SparkUnpivotTransformer(IDataTransformer):
 
         unpivoted_df = data.selectExpr(
             *self.id_columns,
-            f"stack({num_cols}, {stack_expr}) as (Description, Value_Metric)"
+            f"stack({num_cols}, {stack_expr}) as (Description, Value)"
         )
 
         return unpivoted_df

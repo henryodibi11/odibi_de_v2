@@ -45,5 +45,5 @@ __all__ = [
     "is_flat_dataframe",
 
     # session
-    get_active_spark
+    "get_active_spark"
 ]

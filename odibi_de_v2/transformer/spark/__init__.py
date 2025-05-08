@@ -9,6 +9,7 @@ from .spark_rule_based_mapper import SparkRuleBasedMapper
 from .spark_steam_property_extractor import SparkSteamPropertyExtractor
 from .spark_pivot_transformer import SparkPivotTransformer
 from .spark_unpivot_transformer import SparkUnpivotTransformer
+from .spark_pivot_calc import SparkPivotWithCalculationTransformer
 
 
 __all__ = [
@@ -22,5 +23,6 @@ __all__ = [
     "SparkRuleBasedMapper",
     "SparkSteamPropertyExtractor",
     "SparkPivotTransformer",
-    "SparkUnpivotTransformer"
+    "SparkUnpivotTransformer",
+    "SparkPivotWithCalculationTransformer"
 ]
