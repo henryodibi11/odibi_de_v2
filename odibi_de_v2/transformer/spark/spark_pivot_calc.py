@@ -9,6 +9,8 @@ from odibi_de_v2.utils import (
     enforce_types, validate_non_empty, ensure_output_type,
     benchmark, log_call
 )
+from .spark_pivot_transformer import SparkPivotTransformer
+from .spark_unpivot_transformer import SparkUnpivotTransformer
 
 
 @enforce_types(strict=True)
@@ -41,7 +43,6 @@ class SparkPivotWithCalculationTransformer(IDataTransformer):
         view_name (str): Optional view name to register the final result.
         register_view (bool): Whether to register final output as a temp view.
     """
-    from odibi_de_v2.transformer import SparkPivotTransformer, SparkUnpivotTransformer
 
     def __init__(
         self,
