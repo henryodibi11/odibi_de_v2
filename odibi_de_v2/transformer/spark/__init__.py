@@ -8,6 +8,7 @@ from .event_splitter import SparkEventSplitter
 from .spark_rule_based_mapper import SparkRuleBasedMapper
 from .spark_steam_property_extractor import SparkSteamPropertyExtractor
 from .spark_pivot_transformer import SparkPivotTransformer
+from .spark_unpivot_transformer import SparkUnpivotTransformer
 
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "SparkEventSplitter",
     "SparkRuleBasedMapper",
     "SparkSteamPropertyExtractor",
-    "SparkPivotTransformer"
+    "SparkPivotTransformer",
+    "SparkUnpivotTransformer"
 ]
