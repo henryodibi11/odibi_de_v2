@@ -2,7 +2,8 @@ from .spark import (
     SparkColumnRenamer, SparkColumnDropper, SparkValueReplacer,
     SparkColumnReorderer,SparkColumnAdder,SparkColumnNameStandardizer,
     SparkEventSplitter,SparkRuleBasedMapper,SparkSteamPropertyExtractor,
-    SparkPivotTransformer,SparkUnpivotTransformer,SparkPivotWithCalculationTransformer)
+    SparkPivotTransformer,SparkUnpivotTransformer,SparkPivotWithCalculationTransformer,
+    SparkPivotSteamPropertyTransformer)
 
 from .pandas import (
     PandasColumnRenamer,
@@ -37,6 +38,7 @@ __all__ = [
     "SparkPivotTransformer",
     "SparkUnpivotTransformer",
     "SparkPivotWithCalculationTransformer",
+    "SparkPivotSteamPropertyTransformer",
     # Pandas
     "PandasColumnRenamer",
     "PandasColumnDropper",

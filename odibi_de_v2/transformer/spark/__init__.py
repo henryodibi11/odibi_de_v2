@@ -10,7 +10,7 @@ from .spark_steam_property_extractor import SparkSteamPropertyExtractor
 from .spark_pivot_transformer import SparkPivotTransformer
 from .spark_unpivot_transformer import SparkUnpivotTransformer
 from .spark_pivot_calc import SparkPivotWithCalculationTransformer
-
+from .spark_pivot_steam_property_transformer import SparkPivotSteamPropertyTransformer
 
 __all__ = [
     "SparkColumnRenamer",
@@ -24,5 +24,6 @@ __all__ = [
     "SparkSteamPropertyExtractor",
     "SparkPivotTransformer",
     "SparkUnpivotTransformer",
-    "SparkPivotWithCalculationTransformer"
+    "SparkPivotWithCalculationTransformer",
+    "SparkPivotSteamPropertyTransformer"
 ]
