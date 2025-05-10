@@ -15,7 +15,7 @@ from .spark_steam_property_extractor import SparkSteamPropertyExtractor
 
 
 @enforce_types(strict=True)
-@validate_non_empty(["conversion_query", "steam_property_config"])
+@validate_non_empty(["conversion_query"])
 @benchmark(module="TRANSFORMER", component="SparkSteamWorkflowTransformer")
 @log_call(module="TRANSFORMER", component="SparkSteamWorkflowTransformer")
 @log_exceptions(
@@ -132,7 +132,7 @@ class SparkSteamWorkflowTransformer(IDataTransformer):
     def __init__(
         self,
         conversion_query: str,
-        steam_property_config: Dict,
+        steam_property_config: Dict = {},
         pre_pivot_config: Optional[Dict] = None,
         pre_unpivot_config: Optional[Dict] = None,
         derived_columns: Optional[Dict[str, str]] = None,
@@ -178,8 +178,9 @@ class SparkSteamWorkflowTransformer(IDataTransformer):
         for col_name, col_expr in self.derived_columns.items():
             df = df.withColumn(col_name, expr(col_expr))
 
-        # Steam property extraction
-        df = SparkSteamPropertyExtractor(**self.steam_property_config).transform(df)
+        if steam_property_config:
+            # Steam property extraction
+            df = SparkSteamPropertyExtractor(**self.steam_property_config).transform(df)
 
         # Post-processing: pivot or unpivot
         if self.post_pivot_config:
