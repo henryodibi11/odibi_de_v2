@@ -178,7 +178,7 @@ class SparkSteamWorkflowTransformer(IDataTransformer):
         for col_name, col_expr in self.derived_columns.items():
             df = df.withColumn(col_name, expr(col_expr))
 
-        if steam_property_config:
+        if self.steam_property_config:
             # Steam property extraction
             df = SparkSteamPropertyExtractor(**self.steam_property_config).transform(df)
 
