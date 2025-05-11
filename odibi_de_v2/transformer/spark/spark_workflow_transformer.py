@@ -15,6 +15,7 @@ from .spark_pivot_transformer import SparkPivotTransformer
 from .spark_unpivot_transformer import SparkUnpivotTransformer
 
 
+
 @enforce_types(strict=True)
 @validate_non_empty(["conversion_query"])
 @benchmark(module="TRANSFORMER", component="SparkWorkflowTransformer")

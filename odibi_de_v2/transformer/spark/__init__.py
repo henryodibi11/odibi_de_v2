@@ -12,6 +12,7 @@ from .spark_unpivot_transformer import SparkUnpivotTransformer
 from .spark_pivot_calc import SparkPivotWithCalculationTransformer
 from .spark_pivot_steam_property_transformer import SparkPivotSteamPropertyTransformer
 from .spark_steam_workflow_transformer import SparkSteamWorkflowTransformer
+from .spark_workflow_transformer import SparkWorkflowTransformer
 
 
 __all__ = [
@@ -28,5 +29,6 @@ __all__ = [
     "SparkUnpivotTransformer",
     "SparkPivotWithCalculationTransformer",
     "SparkPivotSteamPropertyTransformer",
-    "SparkSteamWorkflowTransformer"
+    "SparkSteamWorkflowTransformer",
+    "SparkWorkflowTransformer"
 ]
