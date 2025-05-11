@@ -26,40 +26,35 @@ from .spark_steam_property_extractor import SparkSteamPropertyExtractor
 )
 class SparkSteamWorkflowTransformer(IDataTransformer):
     """
-    A flexible transformer that allows optional pre-pivot/unpivot, applies derived column
-    logic, performs steam property calculations, and optionally post-pivots/unpivots the result.
+    A flexible Spark transformer that supports optional pivot/unpivot before and after
+    column derivation logic and allows one or more steam property extractions using IAPWS97.
 
-    This class supports:
-        - Optional pre-processing with pivot or unpivot
-        - Arbitrary column derivations using SQL expressions
-        - Thermodynamic calculations via SparkSteamPropertyExtractor
-        - Optional post-processing with pivot or unpivot
-        - Optional registration of final DataFrame as a temp view
+    This is designed for boiler or steam-based process data where reshaping and enthalpy/entropy
+    calculations are often combined.
 
     Attributes:
-        conversion_query (str): SQL query to select the initial dataset.
-        pre_pivot_config (Optional[Dict]): Parameters for SparkPivotTransformer.
-        pre_unpivot_config (Optional[Dict]): Parameters for SparkUnpivotTransformer.
-        derived_columns (Optional[Dict]): SQL-style expressions to add new calculated columns.
-        steam_property_config (Dict): Config for SparkSteamPropertyExtractor.
-        post_pivot_config (Optional[Dict]): Optional config to re-pivot the result.
-        post_unpivot_config (Optional[Dict]): Optional config to flatten the result.
+        conversion_query (str): SQL query to pull the input dataset.
+        pre_pivot_config (Optional[Dict]): Config for pre-processing with pivot.
+        pre_unpivot_config (Optional[Dict]): Config for pre-processing with unpivot.
+        derived_columns (Optional[Dict]): Dict of SQL expressions to add new columns.
+        steam_property_configs (List[Dict]): List of steam property extractor configs.
+        post_pivot_config (Optional[Dict]): Config for post-processing with pivot.
+        post_unpivot_config (Optional[Dict]): Config for post-processing with unpivot.
         register_view (bool): Whether to register the final DataFrame as a temp view.
-        view_name (str): View name to register if register_view=True.
+        view_name (str): Name of the temp view to register.
 
-    Example 1 (Pre-Pivot → Derive → Steam Props → Post-Unpivot):
+    Example (Pivot → Derive → Multi Steam Props → Unpivot):
 
         >>> from pyspark.sql import SparkSession
         >>> import pandas as pd
         >>> spark = SparkSession.builder.getOrCreate()
-        >>> long_data = [
+        >>> data = [
         ...     {"Time_Stamp": "2025-05-01 00:00:00", "Plant": "A", "Asset": "Boiler1", "Description": "Boiler Steam Temperature", "Value": 495.0},
         ...     {"Time_Stamp": "2025-05-01 00:00:00", "Plant": "A", "Asset": "Boiler1", "Description": "Boiler Steam Pressure", "Value": 180.0},
         ...     {"Time_Stamp": "2025-05-01 01:00:00", "Plant": "A", "Asset": "Boiler1", "Description": "Boiler Steam Temperature", "Value": 500.0},
         ...     {"Time_Stamp": "2025-05-01 01:00:00", "Plant": "A", "Asset": "Boiler1", "Description": "Boiler Steam Pressure", "Value": 185.0}
         ... ]
-        >>> spark_df = spark.createDataFrame(pd.DataFrame(long_data))
-        >>> spark_df.createOrReplaceTempView("boiler_efficiency_long")
+        >>> spark.createDataFrame(pd.DataFrame(data)).createOrReplaceTempView("boiler_efficiency_long")
 
         >>> transformer = SparkSteamWorkflowTransformer(
         ...     conversion_query="SELECT * FROM boiler_efficiency_long",
@@ -73,66 +68,39 @@ class SparkSteamWorkflowTransformer(IDataTransformer):
         ...         "Temp_K": "`Boiler Steam Temperature` + 273.15",
         ...         "Pressure_MPa": "(`Boiler Steam Pressure` + 14.7) * 0.00689476"
         ...     },
-        ...     steam_property_config={
-        ...         "input_params": {
-        ...             "T": "lambda row: row['Temp_K']",
-        ...             "P": "lambda row: row['Pressure_MPa']"
+        ...     steam_property_configs=[
+        ...         {
+        ...             "input_params": {
+        ...                 "T": "lambda row: row['Temp_K']",
+        ...                 "P": "lambda row: row['Pressure_MPa']"
+        ...             },
+        ...             "output_properties": ["h", "s"],
+        ...             "prefix": "main_steam",
+        ...             "units": "imperial"
         ...         },
-        ...         "output_properties": ["h", "s", "cp"],
-        ...         "prefix": "steam",
-        ...         "units": "imperial"
-        ...     },
+        ...         {
+        ...             "input_params": {
+        ...                 "T": "lambda row: row['Temp_K']"
+        ...             },
+        ...             "output_properties": ["cp"],
+        ...             "prefix": "aux_steam",
+        ...             "units": "metric"
+        ...         }
+        ...     ],
         ...     post_unpivot_config={
         ...         "id_columns": ["Time_Stamp", "Plant", "Asset"]
         ...     },
         ...     register_view=True,
-        ...     view_name="steam_workflow_pivot_to_unpivot"
+        ...     view_name="multi_steam_metrics"
         ... )
         >>> df = transformer.transform()
         >>> df.show()
-
-    Example 2 (Pre-Unpivot → Derive → Dummy Steam Props → Post-Pivot):
-
-        >>> wide_data = [
-        ...     {"Time_Stamp": "2025-05-01 00:00:00", "Plant": "A", "Asset": "Boiler1", "Boiler Steam Temperature": 495.0, "Boiler Steam Pressure": 180.0},
-        ...     {"Time_Stamp": "2025-05-01 01:00:00", "Plant": "A", "Asset": "Boiler1", "Boiler Steam Temperature": 500.0, "Boiler Steam Pressure": 185.0}
-        ... ]
-        >>> spark.createDataFrame(pd.DataFrame(wide_data)).createOrReplaceTempView("boiler_efficiency_wide")
-
-        >>> transformer2 = SparkSteamWorkflowTransformer(
-        ...     conversion_query="SELECT * FROM boiler_efficiency_wide",
-        ...     pre_unpivot_config={
-        ...         "id_columns": ["Time_Stamp", "Plant", "Asset"]
-        ...     },
-        ...     derived_columns={
-        ...         "Scaled_Value": "Value * 2"
-        ...     },
-        ...     steam_property_config={
-        ...         "input_params": {
-        ...             "T": "lambda row: row['Scaled_Value']"
-        ...         },
-        ...         "output_properties": ["h"],
-        ...         "prefix": "steam",
-        ...         "units": "metric"
-        ...     },
-        ...     post_pivot_config={
-        ...         "group_by": ["Time_Stamp", "Plant", "Asset"],
-        ...         "pivot_column": "Description",
-        ...         "value_column": "Value",
-        ...         "agg_func": "first"
-        ...     },
-        ...     register_view=True,
-        ...     view_name="steam_workflow_unpivot_to_pivot"
-        ... )
-        >>> df2 = transformer2.transform()
-        >>> df2.show()
-"""
-
+    """
 
     def __init__(
         self,
         conversion_query: str,
-        steam_property_config: Dict = {},
+        steam_property_configs: Optional[List[Dict]] = None,
         pre_pivot_config: Optional[Dict] = None,
         pre_unpivot_config: Optional[Dict] = None,
         derived_columns: Optional[Dict[str, str]] = None,
@@ -145,7 +113,7 @@ class SparkSteamWorkflowTransformer(IDataTransformer):
         self.pre_pivot_config = pre_pivot_config
         self.pre_unpivot_config = pre_unpivot_config
         self.derived_columns = derived_columns or {}
-        self.steam_property_config = steam_property_config
+        self.steam_property_configs = steam_property_configs or []
         self.post_pivot_config = post_pivot_config
         self.post_unpivot_config = post_unpivot_config
         self.register_view = register_view
@@ -164,7 +132,7 @@ class SparkSteamWorkflowTransformer(IDataTransformer):
         spark = get_active_spark()
         df = spark.sql(self.conversion_query)
 
-        # Pre-processing: pivot or unpivot
+        # Pre-processing
         if self.pre_pivot_config:
             df = SparkPivotTransformer(
                 conversion_query=self.conversion_query,
@@ -174,15 +142,15 @@ class SparkSteamWorkflowTransformer(IDataTransformer):
         elif self.pre_unpivot_config:
             df = SparkUnpivotTransformer(**self.pre_unpivot_config).transform(df)
 
-        # Derived column expressions
+        # Derived columns
         for col_name, col_expr in self.derived_columns.items():
             df = df.withColumn(col_name, expr(col_expr))
 
-        if self.steam_property_config:
-            # Steam property extraction
-            df = SparkSteamPropertyExtractor(**self.steam_property_config).transform(df)
+        # Apply all steam property extractors
+        for config in self.steam_property_configs:
+            df = SparkSteamPropertyExtractor(**config).transform(df)
 
-        # Post-processing: pivot or unpivot
+        # Post-processing
         if self.post_pivot_config:
             df.createOrReplaceTempView("__intermediate_steam__")
             df = SparkPivotTransformer(
@@ -193,7 +161,6 @@ class SparkSteamWorkflowTransformer(IDataTransformer):
         elif self.post_unpivot_config:
             df = SparkUnpivotTransformer(**self.post_unpivot_config).transform(df)
 
-        # Register final view
         if self.register_view:
             df.createOrReplaceTempView(self.view_name)
 
