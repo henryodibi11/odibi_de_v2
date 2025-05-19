@@ -3,23 +3,18 @@ from adlfs import AzureBlobFileSystem
 import io
 import re
 from collections import Counter
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from tqdm.notebook import tqdm
 
 
 def normalize_excel_column(col_name: str) -> str:
-    """
-    Normalize by removing Excel-style suffixes like '.1' or '._2' from duplicates,
-    but preserve valid periods within column names like 'Op.System Cond.'
-    """
+    """Preserve dots in names (e.g. 'Op.System') but strip Excel-style suffixes like '.1', '._2'."""
     col = col_name.strip()
     return re.sub(r"(\.|\._)\d+$", "", col)
 
 
 def fix_duplicate_excel_headers(raw_cols: List[str]) -> List[str]:
-    """
-    Normalize headers and deduplicate them by appending _2, _3, etc.
-    """
+    """Normalize and deduplicate columns: 'Description', 'Description.1' → 'Description', 'Description_2'."""
     cleaned = [normalize_excel_column(c) for c in raw_cols]
     counts = Counter()
     result = []
@@ -35,25 +30,29 @@ def load_and_normalize_xlsx_folder_pandas(
     storage_key: str,
     folder_path: str,
     expected_columns: List[str],
-    column_mapping: Dict[str, str] = None,
+    optional_columns: Optional[List[str]] = None,
+    column_mapping: Optional[Dict[str, str]] = None,
     skip_invalid_files: bool = False,
     file_suffix: str = ".xlsx",
     verbose: bool = True,
     ) -> Tuple[pd.DataFrame, List[Dict]]:
     """
-    Reads and merges .xlsx files from ADLS Gen2 using adlfs + pandas.
-
-    Supports:
-    - Strict schema validation
-    - Column renaming after normalization
-    - Optionally skipping invalid files
-    - Audit logging of mismatches
+    Ingests .xlsx files from ADLS Gen2 using pandas + adlfs.
+    - Validates required columns (expected_columns)
+    - Tolerates optional columns (optional_columns)
+    - Normalizes headers and deduplicates Excel-style suffixes
+    - Optionally renames columns
+    - Returns merged DataFrame + audit log of any skipped files
     """
     fs = AzureBlobFileSystem(account_name=storage_account, account_key=storage_key)
     full_path = f"{container_name}/{folder_path}".strip("/")
 
     expected_columns = [col.strip() for col in expected_columns]
+    optional_columns = optional_columns or []
+    all_required = expected_columns + optional_columns
+
     audit_log = []
+    dfs = []
 
     try:
         files = [f for f in fs.ls(full_path) if f.endswith(file_suffix)]
@@ -65,8 +64,6 @@ def load_and_normalize_xlsx_folder_pandas(
 
     print(f"[INFO] Found {len(files)} file(s) in: {full_path}\n")
 
-    dfs = []
-
     for idx, file_path in enumerate(tqdm(files, desc="Processing files", unit="file"), 1):
         try:
             with fs.open(file_path, "rb") as f:
@@ -77,15 +74,17 @@ def load_and_normalize_xlsx_folder_pandas(
             actual_cols = fix_duplicate_excel_headers(raw_cols)
             df.columns = actual_cols
 
+            # Schema check: required columns must match exactly
+            actual_trimmed = actual_cols[:len(expected_columns)]
             mismatch_found = (
-                len(actual_cols) != len(expected_columns) or
-                any(a != e for a, e in zip(actual_cols, expected_columns))
+                len(actual_trimmed) != len(expected_columns) or
+                any(a != e for a, e in zip(actual_trimmed, expected_columns))
             )
 
             if mismatch_found:
                 print(f"\n[DEBUG] Column mismatch in file: {file_path}")
-                for i in range(max(len(actual_cols), len(expected_columns))):
-                    a = actual_cols[i] if i < len(actual_cols) else "<MISSING>"
+                for i in range(max(len(actual_trimmed), len(expected_columns))):
+                    a = actual_trimmed[i] if i < len(actual_trimmed) else "<MISSING>"
                     e = expected_columns[i] if i < len(expected_columns) else "<MISSING>"
                     status = "✅" if a == e else "❌"
                     print(f" {status} [{i:02}] actual = '{a}' | expected = '{e}'")
@@ -96,12 +95,20 @@ def load_and_normalize_xlsx_folder_pandas(
                         "reason": "Column mismatch",
                         "actual_columns": actual_cols
                     })
-                    print(f"[SKIPPED] ({idx}/{len(files)}) {file_path} skipped due to mismatch.")
+                    print(f"[SKIPPED] ({idx}/{len(files)}) {file_path} skipped.")
                     continue
                 else:
                     raise ValueError(
                         f"[ERROR] Schema mismatch in {file_path} — column names or order do not match expected schema."
                     )
+
+            # Fill missing optional columns
+            for col in optional_columns:
+                if col not in df.columns:
+                    df[col] = None
+
+            # Reorder to expected + optional column order (if all present)
+            df = df[[col for col in expected_columns + optional_columns if col in df.columns]]
 
             # Optional column renaming
             if column_mapping:
@@ -112,8 +119,7 @@ def load_and_normalize_xlsx_folder_pandas(
                 print(f"[SUCCESS] ({idx}/{len(files)}) {file_path} loaded")
 
         except Exception as e:
-            error_msg = f"[FAIL] ({idx}/{len(files)}) Error reading {file_path}: {e}"
-            print(error_msg)
+            print(f"[FAIL] ({idx}/{len(files)}) Error reading {file_path}: {e}")
             if skip_invalid_files:
                 audit_log.append({
                     "file_path": file_path,
@@ -126,5 +132,4 @@ def load_and_normalize_xlsx_folder_pandas(
 
     print(f"\n[INFO] Loaded {len(dfs)} valid file(s). Concatenating now...")
     final_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
-
     return final_df, audit_log
