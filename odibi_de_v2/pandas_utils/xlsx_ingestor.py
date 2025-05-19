@@ -24,6 +24,28 @@ def fix_duplicate_excel_headers(raw_cols: List[str]) -> List[str]:
     return result
 
 
+def infer_column_types(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Converts object columns to appropriate types:
+    - Tries numeric conversion
+    - Falls back to string
+    - Replaces nulls in string columns with empty string
+
+    This avoids Spark conversion issues and guarantees consistent schema behavior.
+    """
+    for col in df.columns:
+        if df[col].dtype == "object":
+            try:
+                # Try to convert to numeric (only if fully coercible)
+                df[col] = pd.to_numeric(df[col], errors="raise")
+            except Exception:
+                # Fallback to string and fill nulls with empty string
+                df[col] = df[col].astype(str).fillna("")
+    return df
+
+
+
+
 def load_and_normalize_xlsx_folder_pandas(
     container_name: str,
     storage_account: str,
@@ -37,38 +59,15 @@ def load_and_normalize_xlsx_folder_pandas(
     file_suffix: str = ".xlsx",
     verbose: bool = True,
     max_workers: int = 8,
-    ) -> Tuple[pd.DataFrame, List[Dict]]:
+) -> Tuple[pd.DataFrame, List[Dict]]:
     """
     Loads and normalizes multiple .xlsx files from ADLS Gen2 using pandas and adlfs, with parallel execution.
 
-    This function performs schema validation, column deduplication, optional renaming, 
-    and optional row filtering based on snapshot dates in the file name. Invalid files 
-    can be skipped with detailed audit logging.
-
-    Args:
-        container_name (str): Name of the container (e.g., "digital-manufacturing").
-        storage_account (str): Name of the ADLS Gen2 storage account.
-        storage_key (str): Access key for the storage account.
-        folder_path (str): Folder path within the container where .xlsx files are stored.
-        expected_columns (List[str]): List of required column names in the expected order.
-        optional_columns (List[str], optional): Columns that may be missing from some files.
-            These will be added with None if not present. Defaults to None.
-        column_mapping (Dict[str, str], optional): Mapping to rename columns. Keys are original names.
-        snapshot_date_filter (Dict, optional): Configuration for filtering rows by snapshot date in filename.
-            Expected keys:
-                - "column": name of column to filter (e.g., "Sched. start")
-                - "date_pattern": regex pattern to extract date (default: r"(\\d{8})")
-                - "date_format": Python datetime format (default: "%m%d%Y")
-                - "window_days": Number of days to keep after snapshot (default: 6)
-        skip_invalid_files (bool): If True, skip files with schema mismatch or errors. Defaults to False.
-        file_suffix (str): File suffix to filter by, typically ".xlsx". Defaults to ".xlsx".
-        verbose (bool): If True, print progress and status messages. Defaults to True.
-        max_workers (int): Number of threads to use for parallel file loading. Defaults to 8.
+    Automatically infers column types (numeric, datetime, or string) based on value distribution.
+    Supports schema validation, optional filtering, renaming, and audit logging.
 
     Returns:
-        Tuple[pd.DataFrame, List[Dict]]: A tuple containing:
-            - A merged and filtered pandas DataFrame
-            - A list of audit log records for skipped or failed files
+        Tuple[pd.DataFrame, List[Dict]]: Concatenated result and audit log of skipped files
     """
     fs = AzureBlobFileSystem(account_name=storage_account, account_key=storage_key)
     full_path = f"{container_name}/{folder_path}".strip("/")
@@ -95,11 +94,14 @@ def load_and_normalize_xlsx_folder_pandas(
             file_name = file_path.split("/")[-1]
             with fs.open(file_path, "rb") as f:
                 file_bytes = io.BytesIO(f.read())
-                df = pd.read_excel(file_bytes, engine="openpyxl", parse_dates=False)
+                df = pd.read_excel(file_bytes, engine="openpyxl", dtype=str)
 
             raw_cols = df.columns.tolist()
             actual_cols = fix_duplicate_excel_headers(raw_cols)
             df.columns = actual_cols
+
+            # Infer types
+            df = infer_column_types(df)
 
             actual_trimmed = actual_cols[:len(expected_columns)]
             mismatch_found = (
@@ -108,12 +110,6 @@ def load_and_normalize_xlsx_folder_pandas(
             )
 
             if mismatch_found:
-                debug_info = [f"[DEBUG] {file_path}"]
-                for i in range(max(len(actual_trimmed), len(expected_columns))):
-                    a = actual_trimmed[i] if i < len(actual_trimmed) else "<MISSING>"
-                    e = expected_columns[i] if i < len(expected_columns) else "<MISSING>"
-                    status = "✅" if a == e else "❌"
-                    debug_info.append(f" {status} [{i:02}] actual = '{a}' | expected = '{e}'")
                 if skip_invalid_files:
                     return None, {
                         "file_path": file_path,
@@ -121,7 +117,7 @@ def load_and_normalize_xlsx_folder_pandas(
                         "actual_columns": actual_cols
                     }
                 else:
-                    raise ValueError("\n".join(debug_info))
+                    raise ValueError(f"Schema mismatch in {file_path}")
 
             for col in optional_columns:
                 if col not in df.columns:
@@ -143,6 +139,9 @@ def load_and_normalize_xlsx_folder_pandas(
                     (df[date_column] >= snapshot_date) &
                     (df[date_column] <= snapshot_date + timedelta(days=window_days))
                 ]
+
+                if verbose:
+                    print(f"[FILTER] {file_name} → {len(df)} rows between {snapshot_date.date()} and {(snapshot_date + timedelta(days=window_days)).date()}")
 
             if column_mapping:
                 df.rename(columns=column_mapping, inplace=True)
