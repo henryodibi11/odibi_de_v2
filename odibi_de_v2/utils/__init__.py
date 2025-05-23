@@ -1,3 +1,5 @@
+from .excel_ingestion import run_excel_ingestion_workflow
+
 from .type_checks import (
     is_empty_dict,
     is_valid_type,
@@ -67,6 +69,8 @@ from .tree_visualizer import print_tree
 
 
 __all__ = [
+    # excel ingestion
+    "run_excel_ingestion_workflow",
     # type checks
     "is_empty_dict", "is_valid_type", "is_non_empty_string", "is_boolean",
 
