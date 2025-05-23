@@ -1,11 +1,6 @@
 from typing import List, Dict, Optional, Tuple
 import pandas as pd
 from pyspark.sql import SparkSession, DataFrame as SparkDataFrame
-from odibi_de_v2.pandas_utils import load_and_normalize_xlsx_folder_pandas
-from odibi_de_v2.storage import SaverProvider
-from odibi_de_v2.core import Framework, DataType
-from odibi_de_v2.connector import AzureBlobConnection
-from odibi_de_v2.databricks import get_secret, DeltaTableManager
 
 
 def run_excel_ingestion_workflow(
@@ -35,6 +30,13 @@ def run_excel_ingestion_workflow(
     force_reprocess: bool = False,
     verbose: bool = True
 ) -> Tuple[Optional[SparkDataFrame], List[Dict], pd.DataFrame]:
+
+    from odibi_de_v2.pandas_utils import load_and_normalize_xlsx_folder_pandas
+    from odibi_de_v2.storage import SaverProvider
+    from odibi_de_v2.core import Framework, DataType
+    from odibi_de_v2.connector import AzureBlobConnection
+    from odibi_de_v2.databricks import get_secret, DeltaTableManager
+
     """
     Generic ingestion workflow for Excel files stored in ADLS Gen2.
     Supports snapshot-based filtering, Delta Lake save, optional Parquet export,
