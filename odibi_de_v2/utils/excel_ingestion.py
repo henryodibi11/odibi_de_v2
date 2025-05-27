@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional, Tuple
 import pandas as pd
 from pyspark.sql import SparkSession, DataFrame as SparkDataFrame
-
+from odibi_de_v2.core import Framework
 
 def run_excel_ingestion_workflow(
     spark: SparkSession,
@@ -108,7 +108,7 @@ def run_excel_ingestion_workflow(
         AzureBlobConnection(
             account_name=azure_account_name,
             account_key=account_key,
-            framework="spark"
+            framework=Framework.SPARK
         )
     )
 
@@ -138,7 +138,7 @@ def run_excel_ingestion_workflow(
             AzureBlobConnection(
                 account_name=azure_account_name,
                 account_key=account_key,
-                framework="pandas"
+                framework=Framework.PANDAS
             )
         ).save(
             df=df,
