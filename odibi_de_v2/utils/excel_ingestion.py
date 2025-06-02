@@ -101,6 +101,9 @@ def run_excel_ingestion_workflow(
     for col in df.columns:
         if df[col].dtype == "object":
             df[col] = df[col].astype(str)
+        elif pd.api.types.is_integer_dtype(df[col]) or pd.api.types.is_float_dtype(df[col]):
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
+
 
     df_spark = spark.createDataFrame(df)
 
