@@ -125,6 +125,8 @@ def run_excel_ingestion_workflow(
         mode="append",
         options={"overwriteSchema": "true"}
     )
+    df_full_spark = spark.sql(f"SELECT * FROM {database_name}.{table_name}")
+    df_full = df_full_spark.toPandas()
 
     if register_table:
         delta_path = saver.connector.get_file_path(
@@ -144,11 +146,11 @@ def run_excel_ingestion_workflow(
                 framework=Framework.PANDAS
             )
         ).save(
-            df=df,
+            df=df_full,
             data_type=DataType.PARQUET,
             container=parquet_container,
             path_prefix=parquet_path_prefix,
             object_name=parquet_object_name
         )
 
-    return df_spark, audit_log, file_log_df
+    return df_full_spark, audit_log, file_log_df
