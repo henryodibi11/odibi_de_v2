@@ -4,7 +4,7 @@ from .spark import (
     SparkEventSplitter,SparkRuleBasedMapper,SparkSteamPropertyExtractor,
     SparkPivotTransformer,SparkUnpivotTransformer,SparkPivotWithCalculationTransformer,
     SparkPivotSteamPropertyTransformer,SparkSteamWorkflowTransformer,
-    SparkWorkflowTransformer)
+    SparkWorkflowTransformer,SparkHumidityRatioExtractor,spark_weather_workflow_transformer)
 
 from .pandas import (
     PandasColumnRenamer,
@@ -14,7 +14,8 @@ from .pandas import (
     PandasColumnAdder,
     PandasColumnNamePrefixSuffix,
     PandasColumnNameStandardizer,
-    PandasSteamPropertyExtractor)
+    PandasSteamPropertyExtractor,
+    PandasHumidityRatioExtractor)
 from .transformer_function_registry import(
     set_transformer_package,
     get_transformer_registry,
@@ -42,6 +43,8 @@ __all__ = [
     "SparkPivotSteamPropertyTransformer",
     "SparkSteamWorkflowTransformer",
     "SparkWorkflowTransformer",
+    "SparkHumidityRatioExtractor",
+    "spark_weather_workflow_transformer",
     # Pandas
     "PandasColumnRenamer",
     "PandasColumnDropper",
@@ -50,7 +53,8 @@ __all__ = [
     "PandasColumnAdder",
     "PandasColumnNamePrefixSuffix",
     "PandasColumnNameStandardizer",
-    "PandasSteamPropertyExtractor"
+    "PandasSteamPropertyExtractor",
+    "PandasHumidityRatioExtractor",
     # Transformer Registry
     "set_transformer_package",
     "get_transformer_registry",

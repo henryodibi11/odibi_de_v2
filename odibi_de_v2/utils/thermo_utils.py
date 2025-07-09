@@ -1,5 +1,6 @@
 from iapws import IAPWS97
-
+from psychrolib import SetUnitSystem, GetHumRatioFromRelHum, IP
+from math import exp
 
 def compute_steam_properties(row, input_params: dict, output_properties: list, prefix: str = "") -> dict:
     """
@@ -50,3 +51,55 @@ def compute_steam_properties(row, input_params: dict, output_properties: list, p
 
     except Exception as e:
         return {f"{prefix}_{prop}": None for prop in output_properties}
+
+
+def compute_humidity_ratio(Tdb: float, RH: float, Elev_ft: float) -> float:
+    """
+    Compute the humidity ratio (lb water vapor / lb dry air) given dry bulb temperature,
+    relative humidity, and elevation in feet using psychrolib in IP units.
+
+    This function is used to calculate the humidity ratio for psychrometric analysis
+    in imperial units. It first converts relative humidity to a fraction, estimates
+    atmospheric pressure from elevation using the barometric formula, and then uses
+    psychrolib's `GetHumRatioFromRelHum` to compute the result.
+
+    Args:
+        Tdb (float): Dry bulb temperature in degrees Fahrenheit.
+        RH (float): Relative humidity as a percentage (e.g., 65.0 for 65% RH).
+        Elev_ft (float): Elevation in feet.
+
+    Returns:
+        float: Humidity ratio in lb water vapor / lb dry air. Returns None if an error occurs.
+
+    Example:
+    --------
+    >>> import pandas as pd
+    >>> from odibi_de_v2.utils import compute_humidity_ratio
+    >>> df = pd.DataFrame({
+    ...     "Tdb": [80.0, 75.0, 90.0],
+    ...     "RH": [60.0, 45.0, 70.0],
+    ...     "Elev_ft": [875, 500, 1000]
+    ... })
+    >>> df["humidity_ratio"] = df.apply(
+    ...     lambda row: compute_humidity_ratio(row["Tdb"], row["RH"], row["Elev_ft"]),
+    ...     axis=1
+    ... )
+    >>> print(df)
+
+        Tdb    RH  Elev_ft  humidity_ratio
+    0  80.0  60.0      875        0.013593
+    1  75.0  45.0      500        0.008455
+    2  90.0  70.0     1000        0.022244
+    """
+
+    Elev_ft = int(Elev_ft)
+    try:
+        SetUnitSystem(IP)
+        RH_frac = RH / 100
+        P = 14.696 * exp(-0.0000366 * Elev_ft) # Pressure in psia
+        return GetHumRatioFromRelHum(Tdb, RH_frac, P)
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+

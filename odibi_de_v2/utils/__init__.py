@@ -58,7 +58,7 @@ from .decorators import (
     validate_input_types
 )
 from .general_utils import send_email_using_logic_app
-from .thermo_utils import compute_steam_properties
+from .thermo_utils import compute_steam_properties, compute_humidity_ratio
 from .eval_utils import safe_eval_lambda
 from .email_utils import build_ingestion_email_html
 
@@ -104,6 +104,7 @@ __all__ = [
 
     # thermo utils
     "compute_steam_properties",
+    "compute_humidity_ratio",
 
     # eval utils
     "safe_eval_lambda",

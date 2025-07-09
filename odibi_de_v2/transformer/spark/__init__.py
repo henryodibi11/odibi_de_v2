@@ -13,6 +13,8 @@ from .spark_pivot_calc import SparkPivotWithCalculationTransformer
 from .spark_pivot_steam_property_transformer import SparkPivotSteamPropertyTransformer
 from .spark_steam_workflow_transformer import SparkSteamWorkflowTransformer
 from .spark_workflow_transformer import SparkWorkflowTransformer
+from .spark_humidity_ratio_extractor import SparkHumidityRatioExtractor
+from .spark_weather_workflow_transformer import 
 
 
 __all__ = [
@@ -30,5 +32,6 @@ __all__ = [
     "SparkPivotWithCalculationTransformer",
     "SparkPivotSteamPropertyTransformer",
     "SparkSteamWorkflowTransformer",
-    "SparkWorkflowTransformer"
+    "SparkWorkflowTransformer",
+    "SparkHumidityRatioExtractor"
 ]
