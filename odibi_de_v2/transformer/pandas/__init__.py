@@ -6,7 +6,7 @@ from .column_adder import PandasColumnAdder
 from .column_name_standardizer import PandasColumnNameStandardizer
 from .column_name_prefix_suffix import PandasColumnNamePrefixSuffix
 from .pandas_steam_property_extractor import PandasSteamPropertyExtractor
-from .pandas_humidity_ratio_extractor import 
+from .pandas_humidity_ratio_extractor import PandasHumidityRatioExtractor
 
 
 __all__= [
@@ -17,5 +17,6 @@ __all__= [
     "PandasColumnAdder",
     "PandasColumnNamePrefixSuffix",
     "PandasColumnNameStandardizer",
-    "PandasSteamPropertyExtractor"
+    "PandasSteamPropertyExtractor",
+    "PandasHumidityRatioExtractor"
 ]

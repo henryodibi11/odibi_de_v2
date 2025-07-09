@@ -4,7 +4,7 @@ from .spark import (
     SparkEventSplitter,SparkRuleBasedMapper,SparkSteamPropertyExtractor,
     SparkPivotTransformer,SparkUnpivotTransformer,SparkPivotWithCalculationTransformer,
     SparkPivotSteamPropertyTransformer,SparkSteamWorkflowTransformer,
-    SparkWorkflowTransformer,SparkHumidityRatioExtractor,spark_weather_workflow_transformer)
+    SparkWorkflowTransformer,SparkHumidityRatioExtractor,SparkWeatherWorkflowTransformer)
 
 from .pandas import (
     PandasColumnRenamer,
@@ -44,7 +44,7 @@ __all__ = [
     "SparkSteamWorkflowTransformer",
     "SparkWorkflowTransformer",
     "SparkHumidityRatioExtractor",
-    "spark_weather_workflow_transformer",
+    "SparkWeatherWorkflowTransformer",
     # Pandas
     "PandasColumnRenamer",
     "PandasColumnDropper",
