@@ -9,9 +9,10 @@ from odibi_de_v2.utils import (
 )
 from odibi_de_v2.logger import log_exceptions
 from odibi_de_v2.core.enums import ErrorType
+from .spark_pivot_transformer import SparkPivotTransformer
+from .spark_unpivot_transformer import SparkUnpivotTransformer
+from .spark_humidity_ratio_extractor import SparkHumidityRatioExtractor
 
-from odibi_de_v2.transformer import (
-    SparkPivotTransformer,SparkUnpivotTransformer,SparkHumidityRatioExtractor)
 
 
 @enforce_types(strict=True)
