@@ -28,6 +28,7 @@ class SparkHumidityRatioExtractor(IDataTransformer):
             to either column names (str), fixed values (float), or lambdas.
             Supported keys: `"Tdb"`, `"RH"`, `"Elev_ft"`.
         prefix (str): Optional prefix to prepend to the output column name. Default is "".
+        output_col_name (str): Optional name for the output column. Default is humidity_ratio.
 
     Returns:
         pyspark.sql.DataFrame: Transformed Spark DataFrame with a new column for humidity ratio.
@@ -76,11 +77,15 @@ class SparkHumidityRatioExtractor(IDataTransformer):
     def __init__(
         self,
         input_params: Dict[str, object],
-        prefix: str = "weather"
+        prefix: str = "",
+        output_col_name: str = "humidity_ratio",
     ):
         self.input_params = {k: safe_eval_lambda(v) for k, v in input_params.items()}
         self.prefix = prefix
-        self.output_col = f"{prefix}_humidity_ratio"
+        if prefix:
+            self.output_col_name = f"{prefix}_{output_col_name}"
+        else:
+            self.output_col_name = output_col_name
         self.required_input_cols = self._extract_required_columns(input_params)
 
     def _extract_required_columns(self, params: Dict[str, Any]) -> List[str]:
@@ -122,15 +127,15 @@ class SparkHumidityRatioExtractor(IDataTransformer):
                     result = compute_humidity_ratio(**resolved)
                 except Exception:
                     result = None
-                return {self.output_col: result}
+                return {self.output_col_name: result}
 
             results = input_df.apply(row_to_result, axis=1)
             return pd.DataFrame(results.tolist())
 
         struct_col = apply_humidity_ratio(*[data[col] for col in input_col_names])
         result = data.withColumn("__humidity_struct__", struct_col)
-        result = result.withColumn(self.output_col, result["__humidity_struct__"][self.output_col])
+        result = result.withColumn(self.output_col_name, result["__humidity_struct__"][self.output_col_name])
         return result.drop("__humidity_struct__")
 
     def _get_output_schema(self) -> StructType:
-        return StructType([StructField(self.output_col, DoubleType(), True)])
+        return StructType([StructField(self.output_col_name, DoubleType(), True)])

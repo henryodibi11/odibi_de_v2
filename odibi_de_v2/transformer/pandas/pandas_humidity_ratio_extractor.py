@@ -29,6 +29,7 @@ class PandasHumidityRatioExtractor(IDataTransformer):
             to either column names (str), fixed values (float), or lambda functions.
             Supported keys: `"Tdb"`, `"RH"`, `"Elev_ft"`.
         prefix (str): Optional prefix to prepend to the output column name. Default is "".
+        output_col_name (str): Optional name for the output column. Default is humidity_ratio.
 
     Returns:
         pd.DataFrame: Original DataFrame with a new column for humidity ratio added.
@@ -69,9 +70,10 @@ class PandasHumidityRatioExtractor(IDataTransformer):
         error_type=ErrorType.INIT_ERROR,
         raise_type=ValueError,
     )
-    def __init__(self, input_params: Dict[str, object], prefix: str = "weather"):
+    def __init__(self, input_params: Dict[str, object], prefix: str = "", output_col_name: str = 'humidity_ratio'):
         self.input_params = {k: safe_eval_lambda(v) for k, v in input_params.items()}
         self.prefix = prefix
+        self.output_col_name = output_col_name
         self.required_input_cols = self._extract_required_columns(input_params)
 
     def _extract_required_columns(self, params: Dict[str, object]) -> list:
@@ -102,8 +104,11 @@ class PandasHumidityRatioExtractor(IDataTransformer):
                 return compute_humidity_ratio(**resolved)
             except Exception:
                 return None
+        if self.prefix:
+            humidity_col = f"{self.prefix}_{self.output_col_name}"
+        else:
+            humidity_col = self.output_col_name
 
-        humidity_col = f"{self.prefix}_humidity_ratio"
         data[humidity_col] = data.apply(resolve_and_compute, axis=1)
 
         return data
