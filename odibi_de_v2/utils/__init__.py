@@ -66,7 +66,9 @@ from .template_generators import create_bronze_template, generate_preset_package
 
 from .tree_visualizer import print_tree
 
+from .schema_utils import get_numeric_and_string_columns
 
+from .cleaning_utils import NullFiller
 
 __all__ = [
     # excel ingestion
@@ -117,5 +119,11 @@ __all__ = [
     "generate_preset_package",
 
     # tree visualizer
-    "print_tree"
+    "print_tree",
+
+    # schema utils
+    "get_numeric_and_string_columns",
+
+    # cleaning utils
+    "NullFiller"
 ]
