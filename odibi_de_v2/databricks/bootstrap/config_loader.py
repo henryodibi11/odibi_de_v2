@@ -11,10 +11,10 @@ def load_ingestion_config_tables(
     user: str,
     password: str,
     project: str,
-    enviornment: str = 'qat',
     source_id: str,
     target_id: str,
-    spark: SparkSession
+    spark: SparkSession,
+    enviornment: str = 'qat',
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Loads configuration data for source and target from a SQL Server and returns them as Pandas DataFrames.
