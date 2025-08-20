@@ -80,7 +80,7 @@ def load_ingestion_config_tables(
         FROM IngestionSourceConfig isc
         LEFT JOIN SecretsConfig sc ON isc.secret_config_id = sc.secret_config_id
         WHERE isc.project = '{project}' AND isc.source_id = '{source_id}'
-        AND (isc.environment = {enviornment} OR isc.environment IS NULL)
+        AND (isc.environment = '{enviornment}' OR isc.environment IS NULL)
     """
 
     target_query = f"""
@@ -94,7 +94,7 @@ def load_ingestion_config_tables(
         FROM IngestionTargetConfig itc
         LEFT JOIN SecretsConfig sc ON itc.secret_config_id = sc.secret_config_id
         WHERE itc.project = '{project}' AND itc.target_id = '{target_id}'
-        AND (itc.environment = {enviornment} OR itc.environment IS NULL)
+        AND (itc.environment = '{enviornment}' OR itc.environment IS NULL)
     """
 
     sources_df = provider.read(
