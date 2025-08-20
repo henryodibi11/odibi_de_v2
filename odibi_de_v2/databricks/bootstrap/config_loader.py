@@ -11,6 +11,7 @@ def load_ingestion_config_tables(
     user: str,
     password: str,
     project: str,
+    enviornment: str = 'qat',
     source_id: str,
     target_id: str,
     spark: SparkSession
@@ -28,6 +29,7 @@ def load_ingestion_config_tables(
         user (str): The username used to authenticate with SQL Server.
         password (str): The password used to authenticate with SQL Server.
         project (str): The name of the project for which configuration data is being fetched.
+        enviornment (str): The environment for which the configuration data is being fetched. Defaults to 'qat'.
         source_id (str): The identifier for the source configuration to be fetched.
         target_id (str): The identifier for the target configuration to be fetched.
         spark (SparkSession): An active SparkSession to handle data operations.
@@ -78,7 +80,7 @@ def load_ingestion_config_tables(
         FROM IngestionSourceConfig isc
         LEFT JOIN SecretsConfig sc ON isc.secret_config_id = sc.secret_config_id
         WHERE isc.project = '{project}' AND isc.source_id = '{source_id}'
-        AND (isc.environment <> 'prod' OR isc.environment IS NULL)
+        AND (isc.environment = {enviornment} OR isc.environment IS NULL)
     """
 
     target_query = f"""
@@ -92,7 +94,7 @@ def load_ingestion_config_tables(
         FROM IngestionTargetConfig itc
         LEFT JOIN SecretsConfig sc ON itc.secret_config_id = sc.secret_config_id
         WHERE itc.project = '{project}' AND itc.target_id = '{target_id}'
-        AND (itc.environment <> 'prod' OR itc.environment IS NULL)
+        AND (itc.environment = {enviornment} OR itc.environment IS NULL)
     """
 
     sources_df = provider.read(
