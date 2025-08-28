@@ -17,53 +17,107 @@ from odibi_de_v2.logger import log_exceptions
 
 class SaverProvider:
     """
-    Unified provider for saving data using Pandas, Spark, or Spark Streaming.
+    Unified provider for persisting datasets using Pandas, Spark, or Spark Streaming.
 
-    This class selects the appropriate saver class based on the connector’s framework.
-    It supports cloud and local saves using a consistent interface, automatically applies
-    Spark config options (if applicable), and handles streaming logic via a flag.
+    This class automatically selects the correct saver implementation
+    (`PandasDataSaver`, `SparkDataSaver`, or `SparkStreamingDataSaver`)
+    based on the configured connector framework.
+
+    Key Features:
+    -------------
+    - **Connector-aware**: Resolves file paths or SQL table names using the
+      connector’s ``get_file_path`` method.
+    - **Authentication handling**: Injects storage or JDBC connection options
+      from the connector’s ``get_storage_options`` output.
+    - **SQL support**: Transparently handles Pandas (via SQLAlchemy) and Spark
+      (via JDBC) SQL writes when ``data_type == DataType.SQL``.
+    - **Streaming support**: Delegates to `SparkStreamingDataSaver` if the
+      ``is_stream`` flag is enabled.
 
     Responsibilities:
-    - Resolve file path and storage options using the connector
-    - Apply authentication options to Spark if needed
-    - Delegate the actual save logic to the correct saver implementation
+    -----------------
+    - Normalize connector framework: fall back to local_engine if connector
+      specifies ``Framework.LOCAL``.
+    - Apply Spark-specific configs (e.g., credentials) when writing to cloud
+      storage, but skip these for SQL writes.
+    - Dispatch to the appropriate saver class and return its result.
 
     Decorators:
-        - @log_call: Logs method entry/exit
-        - @enforce_types: Ensures input validation
-        - @log_exceptions: Catches and raises structured runtime errors
+    -----------
+    - ``@log_call``: Logs method entry/exit for debugging.
+    - ``@enforce_types``: Ensures runtime type validation of arguments.
+    - ``@log_exceptions``: Captures and raises structured runtime errors.
 
-    Example:
-        >>> provider = SaverProvider()
-        >>> provider.save(
-        ...     df=pd.DataFrame({"a": [1, 2]}),
-        ...     data_type=DataType.CSV,
-        ...     container="local",
-        ...     path_prefix="/dbfs/tmp",
-        ...     object_name="example.csv",
-        ...     index=False
-        ... )
+    Examples:
+    ---------
+    **Pandas CSV Save**
+    >>> provider = SaverProvider()
+    >>> df = pd.DataFrame({"id": [1, 2]})
+    >>> provider.save(
+    ...     df=df,
+    ...     data_type=DataType.CSV,
+    ...     container="local",
+    ...     path_prefix="/dbfs/tmp",
+    ...     object_name="data.csv",
+    ...     index=False
+    ... )
 
-        >>> connector = AzureBlobConnection(
-        ...     account_name="myacct",
-        ...     account_key="secret",
-        ...     framework=Framework.SPARK
-        ... )
-        >>> provider = SaverProvider(connector)
-        >>> provider.save(
-        ...     df=spark_df,
-        ...     data_type=DataType.PARQUET,
-        ...     container="bronze",
-        ...     path_prefix="curated/metrics",
-        ...     object_name="metrics.parquet",
-        ...     spark=spark,
-        ...     mode="overwrite",
-        ...     option={"compression": "snappy"}
-        ... )
+    **Pandas SQL Save**
+    >>> sql_connector = SQLDatabaseConnection(
+    ...     host="myserver.database.windows.net",
+    ...     database="sales_db",
+    ...     user="admin",
+    ...     password="secret",
+    ...     framework=Framework.PANDAS
+    ... )
+    >>> provider = SaverProvider(connector=sql_connector)
+    >>> provider.save(
+    ...     df=pd.DataFrame({"id": [1, 2]}),
+    ...     data_type=DataType.SQL,
+    ...     container="",    # ignored for SQL
+    ...     path_prefix="",  # ignored for SQL
+    ...     object_name="FactSales",  # table name
+    ...     mode="overwrite"
+    ... )
+
+    **Spark Parquet Save**
+    >>> spark = SparkSession.builder.getOrCreate()
+    >>> azure_connector = AzureBlobConnection(
+    ...     account_name="acct",
+    ...     account_key="key",
+    ...     framework=Framework.SPARK
+    ... )
+    >>> provider = SaverProvider(connector=azure_connector)
+    >>> provider.save(
+    ...     df=spark_df,
+    ...     data_type=DataType.PARQUET,
+    ...     container="bronze",
+    ...     path_prefix="curated/daily",
+    ...     object_name="snapshot.parquet",
+    ...     spark=spark,
+    ...     mode="overwrite"
+    ... )
+
+    **Spark SQL Save**
+    >>> sql_connector = SQLDatabaseConnection(
+    ...     host="myserver.database.windows.net",
+    ...     database="sales_db",
+    ...     user="admin",
+    ...     password="secret",
+    ...     framework=Framework.SPARK
+    ... )
+    >>> provider = SaverProvider(connector=sql_connector)
+    >>> provider.save(
+    ...     df=spark_df,
+    ...     data_type=DataType.SQL,
+    ...     container="",    # ignored for SQL
+    ...     path_prefix="",  # ignored
+    ...     object_name="FactSales",  # table name
+    ...     spark=spark,
+    ...     mode="append"
+    ... )
     """
 
-
-    @log_call(module="STORAGE", component="SaverProvider")
     @enforce_types()
     @log_exceptions(
         module="STORAGE",
@@ -78,15 +132,25 @@ class SaverProvider:
         """
         Initialize the SaverProvider with an optional connector and local fallback engine.
 
-        Args:
-            connector (BaseConnection): A connector for local or cloud access. If None,
-                defaults to LocalConnection.
-            local_engine (Framework): The engine to use for local writes (PANDAS or SPARK).
-                Defaults to Framework.PANDAS.
+        Parameters
+        ----------
+        connector : BaseConnection, optional
+            Connector responsible for path resolution and authentication.
+            If None, defaults to a `LocalConnection`.
+        local_engine : Framework, default=Framework.PANDAS
+            Local execution framework to use if connector specifies
+            `Framework.LOCAL`. Can be `Framework.PANDAS` or `Framework.SPARK`.
         """
         self.connector = connector or LocalConnection()
         self.local_engine = local_engine
 
+    @log_call(module="STORAGE", component="SaverProvider")
+    @enforce_types(strict=False)
+    @log_exceptions(
+        module="STORAGE",
+        component="SaverProvider",
+        error_type=ErrorType.Runtime_Error,
+        raise_type=RuntimeError)
     @log_call(module="STORAGE", component="SaverProvider")
     @enforce_types(strict=False)
     @log_exceptions(
@@ -101,85 +165,74 @@ class SaverProvider:
         container: str,
         path_prefix: str,
         object_name: str,
-        spark=None,
+        spark: SparkSession = None,
         is_stream: bool = False,
         **kwargs
     ) -> None:
         """
-        Saves the DataFrame using the appropriate framework and save strategy.
+        Persist a dataset using the correct saver implementation.
 
-        Args:
-            df (pd.DataFrame | Spark DataFrame): The dataset to save.
-            data_type (DataType): Output format (CSV, JSON, PARQUET, etc.).
-            container (str): Cloud container or local base path (e.g., "bronze" or "local").
-            path_prefix (str): Folder or logical grouping inside the container.
-            object_name (str): File name or object key to write.
-            spark (SparkSession): Required for Spark and streaming saves.
-            is_stream (bool): If True, uses SparkStreamingDataSaver. Defaults to False.
-            **kwargs: Additional arguments passed to the underlying save method.
+        Parameters
+        ----------
+        df : Union[pd.DataFrame, pyspark.sql.DataFrame]
+            DataFrame to be saved.
+        data_type : DataType
+            Target format (CSV, JSON, PARQUET, AVRO, SQL, etc.).
+        container : str
+            Logical container for the destination (e.g., `bronze`, `silver`, `gold`).
+            Ignored for SQL writes.
+        path_prefix : str
+            Path within the container. Ignored for SQL writes.
+        object_name : str
+            Target file name (for file-based writes) or table name (for SQL).
+        spark : SparkSession, optional
+            Active Spark session, required for Spark- and streaming-based saves.
+        is_stream : bool, default=False
+            If True, use `SparkStreamingDataSaver`.
+        **kwargs : dict
+            Additional options passed to the underlying saver:
+            - For Pandas SQL: `mode` ("append" or "overwrite")
+            - For Spark SQL: `mode` + JDBC `storage_options`
+            - For file-based saves: Spark writer options like `partitionBy`, `option`.
 
-        Returns:
-            None
-
-        Raises:
-            ValueError: If Spark session is missing for Spark-based saves.
-            NotImplementedError: If framework is not supported.
-            RuntimeError: If an internal save operation fails.
-
-        Examples:
-            >>> provider = SaverProvider()
-            >>> df = pd.DataFrame({"id": [1, 2]})
-            >>> provider.save(
-            ...     df=df,
-            ...     data_type=DataType.CSV,
-            ...     container="local",
-            ...     path_prefix="/dbfs/tmp/output",
-            ...     object_name="data.csv",
-            ...     index=False
-            ... )
-
-            >>> azure_connector = AzureBlobConnection(
-            ...     account_name="youracct",
-            ...     account_key="yourkey",
-            ...     framework=Framework.SPARK
-            ... )
-            >>> provider = SaverProvider(azure_connector)
-            >>> provider.save(
-            ...     df=spark_df,
-            ...     data_type=DataType.PARQUET,
-            ...     container="bronze",
-            ...     path_prefix="curated/daily",
-            ...     object_name="snapshot.parquet",
-            ...     spark=spark,
-            ...     mode="overwrite"
-            ... )
-
-            >>> provider.save(
-            ...     df=streaming_df,
-            ...     data_type=DataType.DELTA,
-            ...     container="bronze",
-            ...     path_prefix="raw/streaming",
-            ...     object_name="energy_stream",
-            ...     spark=spark,
-            ...     is_stream=True,
-            ...     outputMode="append",
-            ...     options={"checkpointLocation": "/mnt/bronze/_checkpoints"}
-            ... )
+        Raises
+        ------
+        ValueError
+            If Spark is required but not provided.
+        NotImplementedError
+            If the framework is unsupported.
+        RuntimeError
+            If the underlying save fails (handled by decorators).
         """
+        # 1. Resolve "file_path" or "table_name"
         file_path = self.connector.get_file_path(
             container=container,
             path_prefix=path_prefix,
             object_name=object_name
         )
 
+        # 2. Resolve storage options (e.g., SQL DSN or Spark options)
         options = self.connector.get_storage_options()
         framework = self.connector.framework
         if framework == Framework.LOCAL:
             framework = self.local_engine
 
+        # 3. Dispatch based on framework
         match framework:
             case Framework.PANDAS:
                 saver = PandasDataSaver()
+
+                # SQL needs table_name and connection_string passed explicitly
+                if data_type == DataType.SQL:
+                    return saver.save_data(
+                        df=df,
+                        data_type=data_type,
+                        file_path=object_name,   # table name
+                        storage_options=options, # contains {"connection_string": "..."}
+                        **kwargs
+                    )
+
+                # Non-SQL formats: just use file_path as before
                 return saver.save_data(
                     df=df,
                     data_type=data_type,
@@ -192,7 +245,8 @@ class SaverProvider:
                 if spark is None:
                     raise ValueError("Spark session is required for Spark saves.")
 
-                if options:
+                # Apply connector auth to Spark if needed (skip for SQL)
+                if options and data_type != DataType.SQL:
                     for key, value in options.items():
                         spark.conf.set(key, value)
 
@@ -200,7 +254,9 @@ class SaverProvider:
                 return saver.save_data(
                     df=df,
                     data_type=data_type,
-                    file_path=file_path,
+                    file_path=file_path if data_type != DataType.SQL else object_name,
+                    storage_options=options,
+                    spark=spark,
                     **kwargs
                 )
 

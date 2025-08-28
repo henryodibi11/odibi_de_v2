@@ -16,16 +16,13 @@ class SparkDataSaver(DataSaver):
     """
     Flexible Spark DataFrame writer using method chaining.
 
-    This class supports writing data in any format supported by Spark
-    (CSV, JSON, Parquet, Avro, etc.) and leverages dynamic chaining of 
-    write methods. Users pass intermediate operations like `mode`, 
-    `partitionBy`, and `option`. The `format` and `save` steps are 
-    injected internally based on the `DataType`.
+    - For file-based formats (CSV, JSON, Parquet, Avro, etc.) it dynamically
+      applies chained writer methods (`mode`, `partitionBy`, `option`) and saves
+      to the given path.
+    - For SQL (`DataType.SQL`), `file_path` is treated as the destination table
+      name and Spark's JDBC writer is used.
 
-    Example usage:
-        >>> from odibi_de_v2.core.enums import DataType
-        >>> from odibi_de_v2.storage.spark.spark_data_saver import SparkDataSaver
-
+    Example:
         >>> saver = SparkDataSaver()
         >>> saver.save_data(
         ...     df=df,
@@ -33,6 +30,19 @@ class SparkDataSaver(DataSaver):
         ...     file_path="/mnt/data/output.parquet",
         ...     mode="overwrite",
         ...     option={"compression": "snappy"}
+        ... )
+
+        >>> saver.save_data(
+        ...     df=df,
+        ...     data_type=DataType.SQL,
+        ...     file_path="FactEnergyEfficiency",
+        ...     storage_options={
+        ...         "url": "jdbc:sqlserver://myserver:1433;databaseName=mydb",
+        ...         "user": "admin",
+        ...         "password": "secret",
+        ...         "driver": "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+        ...     },
+        ...     mode="append"
         ... )
     """
 
@@ -54,18 +64,6 @@ class SparkDataSaver(DataSaver):
         file_path: str,
         **kwargs
     ) -> None:
-        """
-        Saves a Spark DataFrame to the specified path using chained writer methods.
-
-        Args:
-            df (DataFrame): The Spark DataFrame to save.
-            data_type (DataType): Enum indicating the file format to write.
-            file_path (str): Destination path for the saved output.
-            **kwargs: Chained writer methods like `mode`, `partitionBy`, `option`.
-
-        Raises:
-            RuntimeError: If the save operation fails due to Spark or filesystem issues.
-        """
         try:
             log_and_optionally_raise(
                 module="STORAGE",
@@ -76,50 +74,69 @@ class SparkDataSaver(DataSaver):
                 level="INFO"
             )
 
-            method_chain = {"format": data_type.value, **kwargs}
-            writer = run_method_chain(df.write, method_chain)
-            writer.save(file_path)
+            if data_type == DataType.SQL:
+                table_name = file_path
+                self._save_sql(df, table_name, **kwargs)
+            else:
+                method_chain = {"format": data_type.value, **kwargs}
+                writer = run_method_chain(df.write, method_chain)
+                writer.save(file_path)
 
             log_and_optionally_raise(
                 module="STORAGE",
                 component="SparkDataSaver",
                 method="save_data",
                 error_type=ErrorType.NO_ERROR,
-                message=f"Successfully saved {data_type.value.upper()} file to: {file_path}",
+                message=f"Successfully saved {data_type.value.upper()} to {file_path}",
                 level="INFO"
             )
+
         except PermissionError as e:
-            raise PermissionError(
-                "Permission denied while accessing file: "
-                f"{file_path} \n {e}") from e
+            raise PermissionError(f"Permission denied while writing to {file_path}\n{e}") from e
         except FileNotFoundError as e:
-            raise FileNotFoundError(
-                f"{data_type.value.upper()} "
-                f"file not found: {file_path} \n {e}"
-                ) from e
+            raise FileNotFoundError(f"Path not found: {file_path}\n{e}") from e
         except IsADirectoryError as e:
-            raise IsADirectoryError(
-                "Expected a file but got a directory: "
-                f"{file_path} \n {e}") from e
+            raise IsADirectoryError(f"Expected a file but got a directory: {file_path}\n{e}") from e
         except ValueError as e:
-            raise ValueError(
-                f"Invalid or empty {data_type.value.upper()} file: "
-                f"{file_path} \n {e}") from e
+            raise ValueError(f"Invalid or empty {data_type.value.upper()} at {file_path}\n{e}") from e
         except OSError as e:
-            raise OSError(
-                f"I/O error while saving {data_type.value.upper()} "
-                f"file: {file_path} \n {e}") from e
-        except NotImplementedError as e:
-            raise NotImplementedError(
-                f"Unsupported data type: "
-                f"{data_type.value} \n {e}") from e
+            raise OSError(f"I/O error while saving {data_type.value.upper()} to {file_path}\n{e}") from e
+        except NotImplementedError:
+            raise
         except Py4JJavaError as e:
+            raise RuntimeError(f"Spark save error: {str(e.java_exception)}") from e
+        except Exception as e:  # noqa: BLE001
             raise RuntimeError(
-                f"Spark save error: {str(e.java_exception)}"
+                f"Unexpected error while saving {data_type.value.upper()} to {file_path}\n{e}"
             ) from e
 
-        except Exception as e:
-            raise RuntimeError(
-                f"Unexpected error while saving {data_type.value.upper()} "
-                f"file to: {file_path} \n {e}"
-            ) from e
+    # ------------------------------------------------------------------ #
+    # Internal helpers                                                   #
+    # ------------------------------------------------------------------ #
+    def _save_sql(
+        self,
+        df: DataFrame,
+        table_name: str,
+        **kwargs
+    ) -> None:
+        """
+        Write a DataFrame to a SQL table using Spark's JDBC writer.
+
+        Args:
+            df: Spark DataFrame
+            table_name: Destination SQL table
+            storage_options (dict): JDBC connection options, must include 'url'
+            mode (str): Save mode, default 'append'
+        """
+        jdbc_options = kwargs.pop("jdbc_options", {}) or kwargs.pop("storage_options", {})
+        if "url" not in jdbc_options:
+            raise ValueError("storage_options/jdbc_options must include a 'url' for the JDBC connection.")
+
+        mode = kwargs.pop("mode", "append")
+        (
+            df.write.format("jdbc")
+            .options(**jdbc_options)
+            .option("dbtable", table_name)
+            .mode(mode)
+            .save()
+        )
