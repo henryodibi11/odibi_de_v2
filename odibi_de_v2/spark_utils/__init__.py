@@ -23,6 +23,9 @@ from .session import (
     get_active_spark
 )
 
+from .sql_utils import (
+    generate_create_table_sql
+)
 __all__ = [
     # columns
     "has_columns",
@@ -45,5 +48,8 @@ __all__ = [
     "is_flat_dataframe",
 
     # session
-    "get_active_spark"
+    "get_active_spark",
+
+    # sql_utils
+    "generate_create_table_sql"
 ]
