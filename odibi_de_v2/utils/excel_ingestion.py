@@ -7,11 +7,6 @@ import re, warnings, fsspec
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
 
-from odibi_de_v2.core import Framework, DataType
-from odibi_de_v2.connector import AzureBlobConnection
-from odibi_de_v2.storage import SaverProvider
-from odibi_de_v2.databricks import DeltaTableManager
-
 
 # === Helpers for fixing duplicate Excel columns ===
 def normalize_excel_column(col_name: str) -> str:
@@ -50,6 +45,11 @@ def run_excel_ingestion_workflow(
     save_parquet: bool = True,
     verbose: bool = True,
 ) -> Tuple[Optional[SparkDataFrame], pd.DataFrame]:
+
+    from odibi_de_v2.core import Framework, DataType
+    from odibi_de_v2.connector import AzureBlobConnection
+    from odibi_de_v2.storage import SaverProvider
+    from odibi_de_v2.databricks import DeltaTableManager
     """
     Multithreaded Excel ingestion workflow for ADLS Gen2 using Pandas + fsspec.
     - Filters snapshots by filename date and/or column date
