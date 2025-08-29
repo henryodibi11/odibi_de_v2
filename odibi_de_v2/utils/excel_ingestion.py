@@ -165,12 +165,25 @@ def run_excel_ingestion_workflow(
         if col_name in psdf.columns:
             fmt = snapshot_date_filter.get("date_format", "%m%d%Y")
             psdf[col_name] = ps.to_datetime(psdf[col_name], format=fmt, errors="coerce")
+
             if "window_days" in snapshot_date_filter:
-                cutoff = pd.Timestamp.today() - pd.Timedelta(days=snapshot_date_filter["window_days"])
+                window_days = snapshot_date_filter["window_days"]
+
                 before = len(psdf)
-                psdf = psdf[psdf[col_name] >= cutoff]
+                # filter rows based on their file's snapshot date
+                psdf = psdf[
+                    (psdf[col_name] >= psdf["file_snapshot_date"]) &
+                    (psdf[col_name] <= psdf["file_snapshot_date"] + pd.Timedelta(days=window_days))
+                ]
+                after = len(psdf)
+
                 if verbose:
-                    print(f"[INFO] Row-level filter: reduced {before} → {len(psdf)} rows")
+                    min_date = (psdf["file_snapshot_date"].min()).date() if not psdf.empty else "N/A"
+                    max_date = (psdf["file_snapshot_date"].max() + pd.Timedelta(days=window_days)).date() if not psdf.empty else "N/A"
+                    print(f"[FILTER] Row-level filter applied on column '{col_name}' → "
+                        f"{before} → {after} rows kept "
+                        f"(window: {window_days} days, range {min_date} to {max_date})")
+
 
     # === STEP 7. Convert to Spark DF & enforce mapping ===
     df_spark = psdf.to_spark()
