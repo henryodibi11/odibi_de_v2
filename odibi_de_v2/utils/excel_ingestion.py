@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import re, warnings, fsspec
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
+from pyspark.sql.functions import col, date_add
 
 
 # === Helpers for fixing duplicate Excel columns ===
@@ -157,32 +158,31 @@ def run_excel_ingestion_workflow(
 
     psdf = psdf[expected_columns_mapped + ["filename", "file_snapshot_date"]]
 
-    # === STEP 6. Row-level filtering (optional) ===
+    # === STEP 6. Row-level filtering (optional, Spark-native) ===
+
     if snapshot_date_filter and "column" in snapshot_date_filter:
-        col_name = column_mapping.get(snapshot_date_filter["column"], snapshot_date_filter["column"]) \
-                    if column_mapping else snapshot_date_filter["column"]
+        col_name = column_mapping.get(
+            snapshot_date_filter["column"],
+            snapshot_date_filter["column"]
+        ) if column_mapping else snapshot_date_filter["column"]
 
-        if col_name in psdf.columns:
-            fmt = snapshot_date_filter.get("date_format", "%m%d%Y")
-            psdf[col_name] = ps.to_datetime(psdf[col_name], format=fmt, errors="coerce")
+        window_days = snapshot_date_filter.get("window_days", 6)
 
-            if "window_days" in snapshot_date_filter:
-                window_days = snapshot_date_filter["window_days"]
+        if col_name in df_spark.columns:
+            before = df_spark.count()
 
-                before = len(psdf)
-                # filter rows based on their file's snapshot date
-                psdf = psdf[
-                    (psdf[col_name] >= psdf["file_snapshot_date"]) &
-                    (psdf[col_name] <= psdf["file_snapshot_date"] + pd.Timedelta(days=window_days))
-                ]
-                after = len(psdf)
+            df_spark = df_spark.filter(
+                (col(col_name) >= col("file_snapshot_date")) &
+                (col(col_name) <= date_add(col("file_snapshot_date"), window_days))
+            )
 
-                if verbose:
-                    min_date = (psdf["file_snapshot_date"].min()).date() if not psdf.empty else "N/A"
-                    max_date = (psdf["file_snapshot_date"].max() + pd.Timedelta(days=window_days)).date() if not psdf.empty else "N/A"
-                    print(f"[FILTER] Row-level filter applied on column '{col_name}' → "
-                        f"{before} → {after} rows kept "
-                        f"(window: {window_days} days, range {min_date} to {max_date})")
+            after = df_spark.count()
+            if verbose:
+                print(
+                    f"[FILTER] Row-level filter on '{col_name}' reduced "
+                    f"{before} → {after} rows "
+                    f"(window={window_days} days relative to file snapshot date)"
+                )
 
 
     # === STEP 7. Convert to Spark DF & enforce mapping ===
