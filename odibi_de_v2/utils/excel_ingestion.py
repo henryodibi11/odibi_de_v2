@@ -1,10 +1,37 @@
 from typing import List, Dict, Optional, Tuple
+import pyspark.pandas as ps
 import pandas as pd
 from pyspark.sql import SparkSession, DataFrame as SparkDataFrame
-from odibi_de_v2.core import Framework
+from datetime import datetime, timedelta
+import re, warnings, fsspec
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import Counter
+
+from odibi_de_v2.core import Framework, DataType
+from odibi_de_v2.connector import AzureBlobConnection
+from odibi_de_v2.storage import SaverProvider
+from odibi_de_v2.databricks import DeltaTableManager
+
+
+# === Helpers for fixing duplicate Excel columns ===
+def normalize_excel_column(col_name: str) -> str:
+    col = col_name.strip()
+    return re.sub(r"(\.|\._)\d+$", "", col)
+
+def fix_duplicate_excel_headers(raw_cols: List[str]) -> List[str]:
+    cleaned = [normalize_excel_column(c) for c in raw_cols]
+    counts = Counter()
+    result = []
+    for c in cleaned:
+        counts[c] += 1
+        result.append(c if counts[c] == 1 else f"{c}_{counts[c]}")
+    return result
+
 
 def run_excel_ingestion_workflow(
     spark: SparkSession,
+    azure_connector,
+    azure_connector_pandas,
     expected_columns: List[str],
     raw_container: str,
     raw_folder_path: str,
@@ -16,104 +43,151 @@ def run_excel_ingestion_workflow(
     parquet_object_name: str,
     table_name: str,
     database_name: str,
-    azure_account_name: str,
-    azure_secret_scope: str,
-    account_key_key: str,
-    file_log_path: Optional[str] = None,
-    snapshot_date_filter: Optional[Dict] = None,
     column_mapping: Optional[Dict[str, str]] = None,
-    optional_columns: Optional[List[str]] = None,
-    date_column: Optional[str] = None,
+    snapshot_date_filter: Optional[Dict] = None,
+    max_threads: int = 4,
     register_table: bool = True,
     save_parquet: bool = True,
-    skip_invalid_files: bool = False,
-    force_reprocess: bool = False,
-    verbose: bool = True
-) -> Tuple[Optional[SparkDataFrame], List[Dict], pd.DataFrame]:
-
-    from odibi_de_v2.pandas_utils import load_and_normalize_xlsx_folder_pandas
-    from odibi_de_v2.storage import SaverProvider
-    from odibi_de_v2.core import Framework, DataType
-    from odibi_de_v2.connector import AzureBlobConnection
-    from odibi_de_v2.databricks import get_secret, DeltaTableManager
-
+    verbose: bool = True,
+) -> Tuple[Optional[SparkDataFrame], pd.DataFrame]:
     """
-    Generic ingestion workflow for Excel files stored in ADLS Gen2.
-    Supports snapshot-based filtering, Delta Lake save, optional Parquet export,
-    file log caching to avoid redundant reprocessing, and table registration.
+    Multithreaded Excel ingestion workflow for ADLS Gen2 using Pandas + fsspec.
+    - Filters snapshots by filename date and/or column date
+    - Loads files in parallel with ThreadPoolExecutor
+    - Fixes duplicate Excel headers
+    - Applies column_mapping to ensure Delta-safe schema
+    - Saves results as Delta + Parquet
+    """
 
-    Returns:
-        - Spark DataFrame (or None if no new data),
-        - audit_log (List[Dict] of success/failure info),
-        - file_log_df (DataFrame of file processing history)
+    warnings.filterwarnings("ignore", category=FutureWarning)
 
-    Example:
-        df, audit_log, file_log = run_excel_ingestion_workflow(
-            spark=spark,
-            expected_columns=expected_columns,
-            snapshot_date_filter={
-                "column": "Sched_start",
-                "date_pattern": r"(\\d{8})",
-                "date_format": "%m%d%Y",
-                "window_days": 6
-            },
-            column_mapping=column_mapping,
-            date_column="Sched_start",
-            raw_container="my-container",
-            raw_folder_path="raw-data/folder",
-            delta_container="my-container",
-            delta_path_prefix="delta/path",
-            delta_object_name="my_delta_table",
-            parquet_container="my-container",
-            parquet_path_prefix="parquet/path",
-            parquet_object_name="my_file.parquet",
-            table_name="my_table",
-            database_name="my_db",
-            file_log_path="logs/my_log.csv",
-            azure_account_name="myaccount",
-            azure_secret_scope="MyVault",
-            account_key_key="MyKey",
-            register_table=True,
-            save_parquet=True
+    # === STEP 1. Apply Spark storage config ===
+    for key, value in azure_connector.get_storage_options().items():
+        spark.conf.set(key, value)
+    account_name = azure_connector.account_name
+
+    # === STEP 2. Filtering config ===
+    days_back = snapshot_date_filter.get("days_back", 30) if snapshot_date_filter else 30
+    date_pattern = snapshot_date_filter.get("date_pattern", r"(\d{8})") if snapshot_date_filter else r"(\d{8})"
+    cutoff_date = datetime.today() - timedelta(days=days_back)
+
+    if verbose:
+        print(f"[INFO] Starting ingestion with days_back={days_back}, cutoff={cutoff_date.date()}")
+
+    # === STEP 3. List Excel files ===
+    base_path = f"abfss://{raw_container}@{account_name}.dfs.core.windows.net/{raw_folder_path}/"
+    all_files = dbutils.fs.ls(base_path)
+
+    selected_files = []
+    for f in all_files:
+        if not f.name.endswith(".xlsx"):
+            continue
+        m = re.search(date_pattern, f.name)
+        if not m:
+            continue
+        try:
+            file_dt = datetime.strptime(m.group(1), "%m%d%Y")
+        except ValueError:
+            try:
+                file_dt = datetime.strptime(m.group(1), "%Y%m%d")
+            except ValueError:
+                continue
+        if file_dt >= cutoff_date:
+            selected_files.append((f.path, file_dt))
+
+    selected_files = sorted(selected_files, key=lambda x: x[1])
+
+    if verbose:
+        print(f"[INFO] {len(selected_files)} Excel files selected for processing:")
+        for fp, dt in selected_files:
+            print(f"   - {fp} (date={dt.date()})")
+
+    if not selected_files:
+        return None, pd.DataFrame()
+
+    # === STEP 4. Multithreaded Excel loading with fsspec ===
+    storage_opts = azure_connector_pandas.get_storage_options()
+
+    def load_excel(file_path, file_dt):
+        try:
+            if verbose:
+                print(f"[THREAD] Loading {file_path}")
+            with fsspec.open(file_path, "rb", **storage_opts) as f:
+                pdf = pd.read_excel(f)
+
+            # ✅ Fix duplicate headers immediately
+            raw_cols = pdf.columns.tolist()
+            pdf.columns = fix_duplicate_excel_headers(raw_cols)
+
+            pdf["filename"] = file_path
+            pdf["file_snapshot_date"] = file_dt
+            if verbose:
+                print(f"[THREAD] Completed {file_path} ({len(pdf)} rows)")
+            return pdf
+        except Exception as e:
+            print(f"[WARN] Failed to load {file_path}: {e}")
+            return None
+
+    pdfs = []
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        futures = [executor.submit(load_excel, fp, dt) for fp, dt in selected_files]
+        for future in as_completed(futures):
+            pdf = future.result()
+            if pdf is not None:
+                pdfs.append(pdf)
+
+    if not pdfs:
+        print("[INFO] No valid Excel data loaded.")
+        return None, pd.DataFrame()
+
+    combined_pdf = pd.concat(pdfs, ignore_index=True)
+
+    # === STEP 5. Normalize schema (Koalas) ===
+    psdf = ps.from_pandas(combined_pdf)
+
+    if column_mapping:
+        psdf = psdf.rename(columns=column_mapping)
+
+    expected_columns_mapped = [column_mapping.get(col, col) for col in expected_columns]
+    for col in expected_columns_mapped:
+        if col not in psdf.columns:
+            psdf[col] = None
+
+    psdf = psdf[expected_columns_mapped + ["filename", "file_snapshot_date"]]
+
+    # === STEP 6. Row-level filtering (optional) ===
+    if snapshot_date_filter and "column" in snapshot_date_filter:
+        col_name = column_mapping.get(snapshot_date_filter["column"], snapshot_date_filter["column"]) \
+                    if column_mapping else snapshot_date_filter["column"]
+
+        if col_name in psdf.columns:
+            fmt = snapshot_date_filter.get("date_format", "%m%d%Y")
+            psdf[col_name] = ps.to_datetime(psdf[col_name], format=fmt, errors="coerce")
+            if "window_days" in snapshot_date_filter:
+                cutoff = pd.Timestamp.today() - pd.Timedelta(days=snapshot_date_filter["window_days"])
+                before = len(psdf)
+                psdf = psdf[psdf[col_name] >= cutoff]
+                if verbose:
+                    print(f"[INFO] Row-level filter: reduced {before} → {len(psdf)} rows")
+
+    # === STEP 7. Convert to Spark DF & enforce mapping ===
+    df_spark = psdf.to_spark()
+    if column_mapping:
+        df_spark = df_spark.select(
+            *[df_spark[col].alias(column_mapping.get(col, col)) for col in df_spark.columns]
         )
-    """
-    account_key = get_secret(azure_secret_scope, account_key_key)
 
-    df, audit_log, file_log_df = load_and_normalize_xlsx_folder_pandas(
-        container_name=raw_container,
-        storage_account=azure_account_name,
-        storage_key=account_key,
-        folder_path=raw_folder_path,
-        expected_columns=expected_columns,
-        optional_columns=optional_columns,
-        column_mapping=column_mapping,
-        snapshot_date_filter=snapshot_date_filter,
-        skip_invalid_files=skip_invalid_files,
-        file_log_path=file_log_path,
-        force_reprocess=force_reprocess,
-        verbose=verbose
-    )
-
-    if df.empty:
-        print("[INFO] No new data to process.")
-        return None, audit_log, file_log_df
-
-    for col in df.columns:
-        if df[col].dtype == "object":
-            df[col] = df[col].astype(str)
-        elif pd.api.types.is_integer_dtype(df[col]) or pd.api.types.is_float_dtype(df[col]):
-            df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
-
-
-    df_spark = spark.createDataFrame(df)
-
+    # === STEP 8. Save to Delta (overwrite) ===
     saver = SaverProvider(
         AzureBlobConnection(
-            account_name=azure_account_name,
-            account_key=account_key,
+            account_name=account_name,
+            account_key=azure_connector.account_key,
             framework=Framework.SPARK
         )
     )
+
+    if verbose:
+        print(f"[INFO] Saving to Delta: {delta_container}/{delta_path_prefix}/{delta_object_name}")
 
     saver.save(
         df=df_spark,
@@ -122,11 +196,9 @@ def run_excel_ingestion_workflow(
         path_prefix=delta_path_prefix,
         object_name=delta_object_name,
         spark=spark,
-        mode="append",
-        options={"overwriteSchema": "true"}
+        mode="overwrite",
+        options={"overwriteSchema": "true", "mergeSchema": "true"}
     )
-    df_full_spark = spark.sql(f"SELECT * FROM {database_name}.{table_name}")
-    df_full = df_full_spark.toPandas()
 
     if register_table:
         delta_path = saver.connector.get_file_path(
@@ -137,12 +209,19 @@ def run_excel_ingestion_workflow(
         DeltaTableManager(spark, table_or_path=delta_path, is_path=True).register_table(
             table_name=table_name, database=database_name
         )
+        if verbose:
+            print(f"[INFO] Registered table {database_name}.{table_name}")
+
+    df_full_spark = spark.sql(f"SELECT * FROM {database_name}.{table_name}")
+    df_full = df_full_spark.toPandas()
 
     if save_parquet:
+        if verbose:
+            print(f"[INFO] Saving Parquet copy: {parquet_container}/{parquet_path_prefix}/{parquet_object_name}")
         SaverProvider(
             AzureBlobConnection(
-                account_name=azure_account_name,
-                account_key=account_key,
+                account_name=account_name,
+                account_key=azure_connector.account_key,
                 framework=Framework.PANDAS
             )
         ).save(
@@ -153,4 +232,7 @@ def run_excel_ingestion_workflow(
             object_name=parquet_object_name
         )
 
-    return df_full_spark, audit_log, file_log_df
+    if verbose:
+        print("[INFO] Ingestion completed successfully.")
+
+    return df_full_spark, df_full
