@@ -10,6 +10,7 @@ pyodbc
 iapws
 nbformat
 ipywidgets
+databricks-sdk
 
 # Optional: add dev tools at the bottom
 pytest

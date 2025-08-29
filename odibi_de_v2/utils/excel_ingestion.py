@@ -50,6 +50,8 @@ def run_excel_ingestion_workflow(
     from odibi_de_v2.connector import AzureBlobConnection
     from odibi_de_v2.storage import SaverProvider
     from odibi_de_v2.databricks import DeltaTableManager
+    from databricks.sdk.runtime import dbutils
+
     """
     Multithreaded Excel ingestion workflow for ADLS Gen2 using Pandas + fsspec.
     - Filters snapshots by filename date and/or column date
