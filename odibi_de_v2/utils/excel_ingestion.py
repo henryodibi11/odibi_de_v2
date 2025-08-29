@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import re, warnings, fsspec
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
-from pyspark.sql.functions import col, date_add
+from pyspark.sql.functions import col as spark_col, date_add
 
 
 # === Helpers for fixing duplicate Excel columns ===
@@ -53,15 +53,6 @@ def run_excel_ingestion_workflow(
     from odibi_de_v2.databricks import DeltaTableManager
     from databricks.sdk.runtime import dbutils
 
-    """
-    Multithreaded Excel ingestion workflow for ADLS Gen2 using Pandas + fsspec.
-    - Filters snapshots by filename date and/or column date
-    - Loads files in parallel with ThreadPoolExecutor
-    - Fixes duplicate Excel headers
-    - Applies column_mapping to ensure Delta-safe schema
-    - Saves results as Delta + Parquet
-    """
-
     warnings.filterwarnings("ignore", category=FutureWarning)
 
     # === STEP 1. Apply Spark storage config ===
@@ -75,7 +66,11 @@ def run_excel_ingestion_workflow(
     cutoff_date = datetime.today() - timedelta(days=days_back)
 
     if verbose:
-        print(f"[INFO] Starting ingestion with days_back={days_back}, cutoff={cutoff_date.date()}")
+        print("=" * 80)
+        print(f"[INFO] Starting ingestion")
+        print(f"       Days back: {days_back}")
+        print(f"       Cutoff:    {cutoff_date.date()}")
+        print("=" * 80)
 
     # === STEP 3. List Excel files ===
     base_path = f"abfss://{raw_container}@{account_name}.dfs.core.windows.net/{raw_folder_path}/"
@@ -106,6 +101,7 @@ def run_excel_ingestion_workflow(
             print(f"   - {fp} (date={dt.date()})")
 
     if not selected_files:
+        print("[INFO] No files meet the cutoff criteria.")
         return None, pd.DataFrame()
 
     # === STEP 4. Multithreaded Excel loading with fsspec ===
@@ -114,18 +110,21 @@ def run_excel_ingestion_workflow(
     def load_excel(file_path, file_dt):
         try:
             if verbose:
-                print(f"[THREAD] Loading {file_path}")
+                print(f"[THREAD-START] {file_path}")
             with fsspec.open(file_path, "rb", **storage_opts) as f:
                 pdf = pd.read_excel(f)
 
             # ✅ Fix duplicate headers immediately
             raw_cols = pdf.columns.tolist()
-            pdf.columns = fix_duplicate_excel_headers(raw_cols)
+            fixed_cols = fix_duplicate_excel_headers(raw_cols)
+            pdf.columns = fixed_cols
+            if verbose:
+                print(f"[THREAD-COLS] {file_path} → {len(raw_cols)} cols → {len(set(fixed_cols))} unique")
 
             pdf["filename"] = file_path
             pdf["file_snapshot_date"] = file_dt
             if verbose:
-                print(f"[THREAD] Completed {file_path} ({len(pdf)} rows)")
+                print(f"[THREAD-END] {file_path} → {len(pdf)} rows")
             return pdf
         except Exception as e:
             print(f"[WARN] Failed to load {file_path}: {e}")
@@ -140,25 +139,32 @@ def run_excel_ingestion_workflow(
                 pdfs.append(pdf)
 
     if not pdfs:
-        print("[INFO] No valid Excel data loaded.")
+        print("[INFO] No valid Excel data loaded after threading.")
         return None, pd.DataFrame()
 
     combined_pdf = pd.concat(pdfs, ignore_index=True)
+    if verbose:
+        print(f"[INFO] Combined DataFrame → {len(combined_pdf)} total rows, {len(combined_pdf.columns)} cols")
 
     # === STEP 5. Normalize schema (Koalas) ===
     psdf = ps.from_pandas(combined_pdf)
 
     if column_mapping:
         psdf = psdf.rename(columns=column_mapping)
+        if verbose:
+            print(f"[INFO] Applied column mapping. New cols: {len(psdf.columns)}")
 
     expected_columns_mapped = [column_mapping.get(col, col) for col in expected_columns]
     for col in expected_columns_mapped:
         if col not in psdf.columns:
             psdf[col] = None
+            if verbose:
+                print(f"[WARN] Added missing column: {col}")
 
     psdf = psdf[expected_columns_mapped + ["filename", "file_snapshot_date"]]
 
-    # === STEP 6. Row-level filtering (optional, Spark-native) ===
+    # === STEP 6. Row-level filtering (Spark-native) ===
+    df_spark = psdf.to_spark()
 
     if snapshot_date_filter and "column" in snapshot_date_filter:
         col_name = column_mapping.get(
@@ -172,21 +178,16 @@ def run_excel_ingestion_workflow(
             before = df_spark.count()
 
             df_spark = df_spark.filter(
-                (col(col_name) >= col("file_snapshot_date")) &
-                (col(col_name) <= date_add(col("file_snapshot_date"), window_days))
+                (spark_col(col_name) >= spark_col("file_snapshot_date")) &
+                (spark_col(col_name) <= date_add(spark_col("file_snapshot_date"), window_days))
             )
 
             after = df_spark.count()
             if verbose:
-                print(
-                    f"[FILTER] Row-level filter on '{col_name}' reduced "
-                    f"{before} → {after} rows "
-                    f"(window={window_days} days relative to file snapshot date)"
-                )
+                print(f"[FILTER] Column '{col_name}' → {before} → {after} rows kept")
+                print(f"[FILTER] Window applied: snapshot_date ± {window_days} days")
 
-
-    # === STEP 7. Convert to Spark DF & enforce mapping ===
-    df_spark = psdf.to_spark()
+    # === STEP 7. Enforce mapping (Delta safety) ===
     if column_mapping:
         df_spark = df_spark.select(
             *[df_spark[col].alias(column_mapping.get(col, col)) for col in df_spark.columns]
@@ -202,7 +203,7 @@ def run_excel_ingestion_workflow(
     )
 
     if verbose:
-        print(f"[INFO] Saving to Delta: {delta_container}/{delta_path_prefix}/{delta_object_name}")
+        print(f"[SAVE] Writing Delta → {delta_container}/{delta_path_prefix}/{delta_object_name}")
 
     saver.save(
         df=df_spark,
@@ -225,14 +226,16 @@ def run_excel_ingestion_workflow(
             table_name=table_name, database=database_name
         )
         if verbose:
-            print(f"[INFO] Registered table {database_name}.{table_name}")
+            print(f"[SAVE] Registered Spark SQL table → {database_name}.{table_name}")
 
     df_full_spark = spark.sql(f"SELECT * FROM {database_name}.{table_name}")
     df_full = df_full_spark.toPandas()
+    if verbose:
+        print(f"[INFO] Final Spark DF → {df_full_spark.count()} rows")
 
     if save_parquet:
         if verbose:
-            print(f"[INFO] Saving Parquet copy: {parquet_container}/{parquet_path_prefix}/{parquet_object_name}")
+            print(f"[SAVE] Writing Parquet → {parquet_container}/{parquet_path_prefix}/{parquet_object_name}")
         SaverProvider(
             AzureBlobConnection(
                 account_name=account_name,
@@ -249,5 +252,6 @@ def run_excel_ingestion_workflow(
 
     if verbose:
         print("[INFO] Ingestion completed successfully.")
+        print("=" * 80)
 
     return df_full_spark, df_full
