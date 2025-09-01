@@ -154,9 +154,12 @@ def run_parquet_ingestion_workflow(
         return None
 
     # === STEP 2. Filter by cutoff ===
-    days_back = snapshot_date_filter.get("days_back", 15) if snapshot_date_filter else 15
-    date_pattern = snapshot_date_filter.get("date_pattern", r"(\d{8})") if snapshot_date_filter else r"(\d{8})"
-    selected_files = filter_files_by_date(all_files, date_pattern, days_back)
+    if snapshot_date_filter:
+        days_back = snapshot_date_filter.get("days_back", 15) if snapshot_date_filter else 15
+        date_pattern = snapshot_date_filter.get("date_pattern", r"(\d{8})") if snapshot_date_filter else r"(\d{8})"
+        selected_files = filter_files_by_date(all_files, date_pattern, days_back)
+    else:
+        selected_files = all_files
 
     if not selected_files:
         log_and_optionally_raise(
