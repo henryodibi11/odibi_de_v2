@@ -170,7 +170,7 @@ def run_parquet_ingestion_workflow(
         for fpath in selected_files:
             pdf = load_and_prepare_parquet(fpath, azure_connector_pandas, header_row_index)
             if pdf is not None:
-            pdfs.append(pdf)
+                pdfs.append(pdf)
     if not selected_files:
         log_and_optionally_raise(
             module="UTILS",
