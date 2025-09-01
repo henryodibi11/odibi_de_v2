@@ -106,7 +106,7 @@ def load_and_prepare_parquet(
                 component="ParquetIngestion",
                 method="run_parquet_ingestion_workflow",
                 error_type=ErrorType.NO_ERROR,
-                message=f"Applied column mapping to {filename}: with → {len(pdf.columns)} cols",
+                message=f"Applied column mapping to {fpath}: with → {len(pdf.columns)} cols",
                 level="INFO",
             )
         return pdf
@@ -178,7 +178,7 @@ def run_parquet_ingestion_workflow(
     else:
         selected_files = all_files
         for fpath in selected_files:
-            pdf = load_and_prepare_parquet(fpath, azure_connector_pandas, header_row_index,column_mapping)
+            pdf = load_and_prepare_parquet(fpath, azure_connector_pandas, header_row_index,column_mapping=column_mapping)
             if pdf is not None:
                 pdfs.append(pdf)
     if not selected_files:
