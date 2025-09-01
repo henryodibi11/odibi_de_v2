@@ -67,7 +67,8 @@ def load_and_prepare_parquet(
     fpath: str,
     azure_connector_pandas,
     header_row_index: int,
-    file_dt: datetime = None
+    file_dt: datetime = None,
+    column_mapping: Dict = None
 ) -> Optional[pd.DataFrame]:
     """Load a parquet file, promote header row, fix headers, attach metadata."""
 
@@ -171,13 +172,13 @@ def run_parquet_ingestion_workflow(
         selected_files = filter_files_by_date(all_files, date_pattern, days_back)
 
         for fpath, file_dt in selected_files:
-            pdf = load_and_prepare_parquet(fpath, azure_connector_pandas, header_row_index, file_dt)
+            pdf = load_and_prepare_parquet(fpath, azure_connector_pandas, header_row_index, file_dt,column_mapping)
             if pdf is not None:
                 pdfs.append(pdf)
     else:
         selected_files = all_files
         for fpath in selected_files:
-            pdf = load_and_prepare_parquet(fpath, azure_connector_pandas, header_row_index)
+            pdf = load_and_prepare_parquet(fpath, azure_connector_pandas, header_row_index,column_mapping)
             if pdf is not None:
                 pdfs.append(pdf)
     if not selected_files:
