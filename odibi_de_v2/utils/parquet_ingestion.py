@@ -231,8 +231,10 @@ def run_parquet_ingestion_workflow(
                 message=f"Added missing col: {col}",
                 level="WARN",
             )
-
-    psdf = psdf[expected_columns_mapped + ["filename", "file_snapshot_date"]]
+    if snapshot_date_filter:
+        psdf = psdf[expected_columns_mapped + ["filename", "file_snapshot_date"]]
+    else:
+        psdf = psdf[expected_columns_mapped + ["filename"]]
 
     # === STEP 4. Convert to Spark ===
     df_spark = psdf.to_spark()
