@@ -98,7 +98,16 @@ def load_and_prepare_parquet(
         pdf["filename"] = fpath
         if file_dt:
             pdf["file_snapshot_date"] = file_dt
-
+        if column_mapping:
+            pdf = pdf.rename(columns=column_mapping)
+            log_and_optionally_raise(
+                module="UTILS",
+                component="ParquetIngestion",
+                method="run_parquet_ingestion_workflow",
+                error_type=ErrorType.NO_ERROR,
+                message=f"Applied column mapping to {filename}: with → {len(pdf.columns)} cols",
+                level="INFO",
+            )
         return pdf
     except Exception as e:
         log_and_optionally_raise(
@@ -206,17 +215,6 @@ def run_parquet_ingestion_workflow(
 
     # === STEP 3. Convert to Koalas ===
     psdf = ps.from_pandas(combined_pdf)
-
-    if column_mapping:
-        psdf = psdf.rename(columns=column_mapping)
-        log_and_optionally_raise(
-            module="UTILS",
-            component="ParquetIngestion",
-            method="run_parquet_ingestion_workflow",
-            error_type=ErrorType.NO_ERROR,
-            message=f"Applied column mapping → {len(psdf.columns)} cols",
-            level="INFO",
-        )
 
     # Ensure expected columns
     expected_columns_mapped = [column_mapping.get(col, col) for col in expected_columns] if column_mapping else expected_columns
