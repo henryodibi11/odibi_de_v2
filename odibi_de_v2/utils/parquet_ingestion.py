@@ -65,9 +65,9 @@ def filter_files_by_date(
 
 def load_and_prepare_parquet(
     fpath: str,
-    file_dt: datetime,
     azure_connector_pandas,
     header_row_index: int,
+    file_dt: datetime = None
 ) -> Optional[pd.DataFrame]:
     """Load a parquet file, promote header row, fix headers, attach metadata."""
 
@@ -96,7 +96,8 @@ def load_and_prepare_parquet(
 
         # Add metadata
         pdf["filename"] = fpath
-        pdf["file_snapshot_date"] = file_dt
+        if file_dt:
+            pdf["file_snapshot_date"] = file_dt
 
         return pdf
     except Exception as e:
@@ -153,14 +154,23 @@ def run_parquet_ingestion_workflow(
         )
         return None
 
-    # === STEP 2. Filter by cutoff ===
+    # === STEP 2. Filter by cutoff and Load parquet files ===
+    pdfs = []
     if snapshot_date_filter:
         days_back = snapshot_date_filter.get("days_back", 15) if snapshot_date_filter else 15
         date_pattern = snapshot_date_filter.get("date_pattern", r"(\d{8})") if snapshot_date_filter else r"(\d{8})"
         selected_files = filter_files_by_date(all_files, date_pattern, days_back)
+
+        for fpath, file_dt in selected_files:
+            pdf = load_and_prepare_parquet(fpath, azure_connector_pandas, header_row_index, file_dt)
+            if pdf is not None:
+                pdfs.append(pdf)
     else:
         selected_files = all_files
-
+        for fpath in selected_files:
+            pdf = load_and_prepare_parquet(fpath, azure_connector_pandas, header_row_index)
+            if pdf is not None:
+            pdfs.append(pdf)
     if not selected_files:
         log_and_optionally_raise(
             module="UTILS",
@@ -172,13 +182,7 @@ def run_parquet_ingestion_workflow(
         )
         return None
 
-    # === STEP 3. Load parquet files ===
-    pdfs = []
-    for fpath, file_dt in selected_files:
-        pdf = load_and_prepare_parquet(fpath, file_dt, azure_connector_pandas, header_row_index)
-        if pdf is not None:
-            pdfs.append(pdf)
-
+    
     if not pdfs:
         log_and_optionally_raise(
             module="UTILS",
@@ -200,7 +204,7 @@ def run_parquet_ingestion_workflow(
         level="INFO",
     )
 
-    # === STEP 4. Convert to Koalas ===
+    # === STEP 3. Convert to Koalas ===
     psdf = ps.from_pandas(combined_pdf)
 
     if column_mapping:
@@ -230,7 +234,7 @@ def run_parquet_ingestion_workflow(
 
     psdf = psdf[expected_columns_mapped + ["filename", "file_snapshot_date"]]
 
-    # === STEP 5. Convert to Spark ===
+    # === STEP 4. Convert to Spark ===
     df_spark = psdf.to_spark()
 
     for c, t in df_spark.dtypes:
