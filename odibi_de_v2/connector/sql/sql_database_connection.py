@@ -69,7 +69,6 @@ class SQLDatabaseConnection(BaseConnection):
         ... )
     """
 
-    @log_call(module="CONNECTOR", component="SQLDatabaseConnection")
     @enforce_types(strict=True)
     @log_exceptions(
         module="CONNECTOR",
