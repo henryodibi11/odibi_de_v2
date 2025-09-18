@@ -42,7 +42,6 @@ class AzureBlobConnection(BaseConnection):
         >>> storage_options = connector.get_storage_options()
     """
 
-    @log_call(module="CONNECTOR", component="AzureBlobConnection")
     @enforce_types(strict=True)
     def __init__(self, account_name: str, account_key: str, framework: Framework):
         """
