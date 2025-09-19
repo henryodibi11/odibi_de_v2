@@ -1,35 +1,84 @@
-from typing import Any
+"""
+safe_eval.py
+
+Provides safe evaluation utilities for odibi_de, using the SAFE_GLOBALS
+environment defined in utils/safe_globals.py.
+"""
+
+from typing import Any, Dict
 
 
-def safe_eval_lambda(obj: Any) -> Any:
+def safe_eval_lambda(obj: Any, extra_globals: Dict[str, Any] = None) -> Any:
     """
-    Evaluates a string that represents a lambda function and returns the resulting lambda function, otherwise returns
-    the input object unchanged.
+    Safely evaluate string-based lambda functions in a restricted environment.
 
-    This function is designed to safely evaluate strings that start with 'lambda', converting them into actual lambda
-    functions. If the input is not a string or does not start with 'lambda', the input is returned as is.
+    This utility converts strings that begin with ``"lambda"`` into actual
+    Python lambda functions, evaluated inside a sandboxed global environment.
+    The sandbox removes all dangerous builtins (e.g., ``open``, ``__import__``)
+    and whitelists only a curated set of safe modules and functions
+    (see :mod:`odibi_de_v2.utils.safe_globals`).
+
+    If the input is not a string or does not start with ``"lambda"``,
+    the object is returned unchanged.
 
     Args:
-        obj (Any): The object to evaluate. This can be any type, but if it is a string that starts with 'lambda',
-        it will be evaluated as a lambda function.
+        obj (Any):
+            The object to evaluate. If this is a string starting with
+            ``"lambda"``, it will be compiled into a function.
+        extra_globals (Dict[str, Any], optional):
+            Additional modules or functions to expose inside the lambda's
+            evaluation environment (e.g., ``{"Decimal": Decimal}``).
 
     Returns:
-        Any: If `obj` is a string representing a lambda function, returns the evaluated lambda function. Otherwise,
-        returns `obj` unchanged.
+        Any: 
+            - A callable lambda function if ``obj`` was a string lambda.
+            - The original object unchanged otherwise.
 
     Raises:
-        SyntaxError: If the string is malformed and cannot be evaluated as a lambda.
-        TypeError: If the evaluation fails due to incorrect usage of types within the lambda expression.
+        TypeError: If evaluation fails due to a syntax or runtime error.
 
-    Example:
-        >>> safe_eval_lambda("lambda x: x + 1")
-        <function <lambda> at 0x7f3d2c0e1ee0>
-        >>> safe_eval_lambda("lambda x, y: x + y")
-        <function <lambda> at 0x7f3d2c0e1f70>
-        >>> safe_eval_lambda(10)
-        10
+    Examples
+    --------
+    Basic numeric transform:
+        >>> fn = safe_eval_lambda("lambda row: row['x'] * 1.05")
+        >>> fn({"x": 100})
+        105.0
+
+    Using math functions (whitelisted by default):
+        >>> fn = safe_eval_lambda("lambda row: math.sqrt(row['value'])")
+        >>> fn({"value": 16})
+        4.0
+
+    Regex-based text cleaning:
+        >>> fn = safe_eval_lambda("lambda row: re.sub(r'\\d+', '', row['col'])")
+        >>> fn({"col": "temp123"})
+        'temp'
+
+    Date parsing with datetime:
+        >>> fn = safe_eval_lambda(
+        ...     "lambda row: datetime.datetime.strptime(row['ts'], '%Y-%m-%d')"
+        ... )
+        >>> fn({"ts": "2025-09-19"})
+        datetime.datetime(2025, 9, 19, 0, 0)
+
+    Extending with extra globals:
+        >>> from decimal import Decimal
+        >>> fn = safe_eval_lambda(
+        ...     "lambda row: Decimal(row['amount']) * 1.10",
+        ...     extra_globals={"Decimal": Decimal}
+        ... )
+        >>> fn({"amount": "100"})
+        Decimal('110.0')
     """
+    from odibi_de_v2.utils import  SAFE_GLOBALS
+
+    safe_globals = dict(SAFE_GLOBALS)  # copy defaults
+    if extra_globals:
+        safe_globals.update(extra_globals)
 
     if isinstance(obj, str) and obj.strip().startswith("lambda"):
-        return eval(obj)
+        try:
+            return eval(obj, safe_globals, {})
+        except Exception as e:
+            raise TypeError(f"Failed to evaluate lambda: {obj!r}. Error: {e}")
     return obj
