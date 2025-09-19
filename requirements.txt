@@ -11,6 +11,7 @@ iapws
 nbformat
 ipywidgets
 databricks-sdk
+psychrolib
 
 # Optional: add dev tools at the bottom
 pytest
