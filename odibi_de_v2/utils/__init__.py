@@ -73,6 +73,10 @@ from .adls_utils import ADLSFolderUtils
 from .parquet_ingestion import run_parquet_ingestion_workflow
 from .types import is_type
 from .engine_utils import detect_engine
+from .safe_globals import SAFE_GLOBALS
+
+
+
 __all__ = [
     # excel ingestion
     "run_excel_ingestion_workflow",
@@ -140,5 +144,9 @@ __all__ = [
     "is_type",
 
     # engine utils
-    "detect_engine"
+    "detect_engine",
+
+    # safe globals
+    "SAFE_GLOBALS"
+
 ]
