@@ -121,7 +121,12 @@ class NullFiller:
             return self._apply_pandas(df)
         elif engine == Framework.SPARK.value:
             return self._apply_spark(df)
-        raise TypeError(f"Unsupported dataframe type: {type(df)}")
+        raise TypeError(
+            f"Unsupported dataframe type: {type(df)}. "
+            f"Engine detection result: {engine} "
+            f"(module={getattr(type(df), '__module__', None)}, "
+            f"name={getattr(type(df), '__name__', None)})"
+        )
 
     # --------- Helpers ---------
     def _is_in_scope(self, col: str) -> bool:
