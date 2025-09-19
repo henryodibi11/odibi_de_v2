@@ -79,8 +79,6 @@ class NullFiller:
     +---+-----+-------+----------+
     """
     
-    from odibi_de_v2.utils import detect_engine
-    
     def __init__(
         self,
         numeric_fill: Any = 0,
@@ -114,6 +112,7 @@ class NullFiller:
 
     # --------- Public API ---------
     def apply(self, df: Any) -> Any:
+        from odibi_de_v2.utils import detect_engine
         """
         Apply null-filling rules to the given DataFrame (Pandas or Spark).
         """
