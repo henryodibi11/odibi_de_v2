@@ -12,6 +12,7 @@ nbformat
 ipywidgets
 databricks-sdk
 psychrolib
+adlfs
 
 # Optional: add dev tools at the bottom
 pytest
