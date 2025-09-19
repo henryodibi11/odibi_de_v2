@@ -71,6 +71,7 @@ from .schema_utils import get_numeric_and_string_columns
 from .cleaning_utils import NullFiller
 from .adls_utils import ADLSFolderUtils
 from .parquet_ingestion import run_parquet_ingestion_workflow
+from .types import is_type
 
 __all__ = [
     # excel ingestion
@@ -133,5 +134,8 @@ __all__ = [
     "ADLSFolderUtils",
 
     # parquet ingestion
-    "run_parquet_ingestion_workflow"
+    "run_parquet_ingestion_workflow",
+
+     # type utils
+    "is_type",
 ]
