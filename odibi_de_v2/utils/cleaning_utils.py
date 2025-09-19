@@ -1,7 +1,6 @@
 from typing import Any, Iterable, Optional
 from odibi_de_v2.core import Framework
 from odibi_de_v2.utils.types import is_type
-from odibi_de_v2.utils import detect_engine
 
 
 class NullFiller:
@@ -79,7 +78,9 @@ class NullFiller:
     |  3|false|      c|      null|
     +---+-----+-------+----------+
     """
-
+    
+    from odibi_de_v2.utils import detect_engine
+    
     def __init__(
         self,
         numeric_fill: Any = 0,
