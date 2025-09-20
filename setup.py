@@ -22,7 +22,8 @@ setup(
         "adlfs",
         "pytest",
         "black",
-        "mypy"
+        "mypy",
+        "tqdm"
     ],
     author="Henry Odibi",
     author_email="odibiengineering@gmail.com",
