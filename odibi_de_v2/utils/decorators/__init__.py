@@ -6,7 +6,7 @@ from .type_enforcement import enforce_types
 from .validate_non_empty import validate_non_empty
 from .validate_schema import validate_schema
 from .validate_input_types import validate_input_types
-
+from .read_error_handler import wrap_read_errors
 
 __all__ = [
     "benchmark",
@@ -16,5 +16,6 @@ __all__ = [
     "enforce_types",
     "validate_non_empty",
     "validate_schema",
-    "validate_input_types"
+    "validate_input_types",
+    "wrap_read_errors"
 ]
