@@ -55,7 +55,8 @@ from .decorators import (
     enforce_types,
     validate_non_empty,
     validate_schema,
-    validate_input_types
+    validate_input_types,
+    wrap_read_errors
 )
 from .general_utils import send_email_using_logic_app
 from .thermo_utils import compute_steam_properties, compute_humidity_ratio
@@ -107,7 +108,7 @@ __all__ = [
     # decorators
     "benchmark", "validate_core_contracts", "ensure_output_type",
     "log_call", "enforce_types", "validate_non_empty", "validate_schema",
-    "validate_input_types",
+    "validate_input_types", "wrap_read_errors"
 
     # general utils
     "send_email_using_logic_app",
