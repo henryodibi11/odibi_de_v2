@@ -10,7 +10,7 @@ from odibi_de_v2.utils import (
     ensure_output_type, benchmark
 )
 from odibi_de_v2.logger import (
-    log_and_optionally_raise, log_exceptions)
+    log_and_optionally_raise)
 from odibi_de_v2.core.enums import ErrorType
 from odibi_de_v2.utils import wrap_read_errors
 
