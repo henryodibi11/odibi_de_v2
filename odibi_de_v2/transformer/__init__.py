@@ -65,5 +65,5 @@ __all__ = [
     "SQLGeneratorFromConfig",
     "TransformerFromConfig",
     "TransformerOrchestrator",
-    "SparkWorkflowNode
+    "SparkWorkflowNode"
 ]
