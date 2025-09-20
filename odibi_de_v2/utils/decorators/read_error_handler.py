@@ -9,7 +9,7 @@ operations, ensuring consistent exception mapping and standardized log output.
 from functools import wraps
 from py4j.protocol import Py4JJavaError
 from odibi_de_v2.logger import log_and_optionally_raise
-from odibi_de_v2.utils.enums import ErrorType
+from odibi_de_v2.core import ErrorType
 
 
 def wrap_read_errors(component: str):
