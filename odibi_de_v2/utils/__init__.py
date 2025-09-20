@@ -74,6 +74,7 @@ from .parquet_ingestion import run_parquet_ingestion_workflow
 from .types import is_type
 from .engine_utils import detect_engine
 from .safe_globals import SAFE_GLOBALS
+from .get_columns import get_columns_by_type
 
 
 
@@ -147,6 +148,9 @@ __all__ = [
     "detect_engine",
 
     # safe globals
-    "SAFE_GLOBALS"
+    "SAFE_GLOBALS",
+
+    # get_columns_by_type
+    "get_columns_by_type"
 
 ]
