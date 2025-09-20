@@ -17,6 +17,9 @@ setup(
         "iapws",
         "nbformat",
         "ipywidgets",
+        "databricks-sdk",
+        "psychrolib",
+        "adlfs",
         "pytest",
         "black",
         "mypy"
