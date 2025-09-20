@@ -2,14 +2,14 @@ from typing import Optional
 from pyspark.sql import SparkSession, DataFrame
 
 from odibi_de_v2.core import DataReader
-from odibi_de_v2.core.enums import DataType, ErrorType
+from odibi_de_v2.core.enums import DataType
 from odibi_de_v2.utils import (
     enforce_types, validate_non_empty, ensure_output_type,
     log_call, benchmark
 )
-from odibi_de_v2.logger import log_exceptions, log_and_optionally_raise
 from odibi_de_v2.utils import run_method_chain
-from py4j.protocol import Py4JJavaError
+from odibi_de_v2.utils import wrap_read_errors
+
 
 class SparkDataReader(DataReader):
     """
@@ -57,11 +57,7 @@ class SparkDataReader(DataReader):
     @ensure_output_type(DataFrame)
     @benchmark(module="INGESTION", component="SparkDataReader")
     @log_call(module="INGESTION", component="SparkDataReader")
-    @log_exceptions(
-        module="INGESTION",
-        component="SparkDataReader",
-        error_type=ErrorType.READ_ERROR,
-        raise_type=RuntimeError)
+    @wrap_read_errors(component="SparkDataReader")
     def read_data(
         self,
         data_type: DataType,
@@ -108,61 +104,12 @@ class SparkDataReader(DataReader):
             ... )
         """
         spark = spark or SparkSession.builder.appName("SparkDataReader").getOrCreate()
-        try:
-            log_and_optionally_raise(
-                module="INGESTION",
-                component="SparkDataReader",
-                method="read_data",
-                error_type=ErrorType.NO_ERROR,
-                message=f"Attempting to read {data_type.value.upper()} file from: {file_path}.",
-                level="INFO")
+        if data_type == DataType.SQL:
+            return self._read_sql(file_path, spark, storage_options, **kwargs)
 
-            if data_type == DataType.SQL:
-                return self._read_sql(file_path, spark, storage_options, **kwargs)
-
-            method_chain = {"format": data_type.value, **kwargs}
-            reader = run_method_chain(spark.read, method_chain)
-            df = reader.load(file_path)
-            log_and_optionally_raise(
-                module="INGESTION",
-                component="SparkDataReader",
-                method="read_data",
-                error_type=ErrorType.NO_ERROR,
-                message=f"Successfully read {data_type.value.upper()} file from: {file_path}.",
-                level="INFO")
-        except PermissionError as e:
-            raise PermissionError(
-                "Permission denied while accessing file: "
-                f"{file_path} \n {e}") from e
-        except FileNotFoundError as e:
-            raise FileNotFoundError(
-                f"{data_type.value.upper()} "
-                f"file not found: {file_path} \n {e}"
-                ) from e
-        except IsADirectoryError as e:
-            raise IsADirectoryError(
-                "Expected a file but got a directory: "
-                f"{file_path} \n {e}") from e
-
-        except ValueError as e:
-            raise ValueError(
-                f"Invalid or empty {data_type.value.upper()} file: "
-                f"{file_path} \n {e}") from e
-        except OSError as e:
-            raise OSError(
-                f"I/O error while reading {data_type.value.upper()} "
-                f"file: {file_path} \n {e}") from e
-        except NotImplementedError as e:
-            raise NotImplementedError(
-                f"Unsupported data type: {data_type.value} \n {e}") from e
-        except Py4JJavaError as e:
-            raise RuntimeError(
-                f"Spark read error while reading "
-                f"{data_type.value.upper()} file: {str(e.java_exception)}") from e
-        except Exception as e:
-            raise RuntimeError(
-                f"Unexpected error while reading {data_type.value.upper()} "
-                f"file: {file_path} \n {e}") from e
+        method_chain = {"format": data_type.value, **kwargs}
+        reader = run_method_chain(spark.read, method_chain)
+        df = reader.load(file_path)
         return df
 
     def _read_sql(
@@ -220,4 +167,3 @@ class SparkDataReader(DataReader):
             reader = reader.option("dbtable", query_or_table)
 
         return reader.load()
-
