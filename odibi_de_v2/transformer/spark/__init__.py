@@ -15,7 +15,7 @@ from .spark_steam_workflow_transformer import SparkSteamWorkflowTransformer
 from .spark_workflow_transformer import SparkWorkflowTransformer
 from .spark_humidity_ratio_extractor import SparkHumidityRatioExtractor
 from .spark_weather_workflow_transformer import SparkWeatherWorkflowTransformer
-
+from .spark_workflow_node import SparkWorkflowNode
 
 __all__ = [
     "SparkColumnRenamer",
@@ -34,5 +34,6 @@ __all__ = [
     "SparkSteamWorkflowTransformer",
     "SparkWorkflowTransformer",
     "SparkHumidityRatioExtractor",
-    "SparkWeatherWorkflowTransformer"
+    "SparkWeatherWorkflowTransformer",
+    "SparkWorkflowNode
 ]
