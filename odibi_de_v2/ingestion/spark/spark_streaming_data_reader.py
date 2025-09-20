@@ -1,6 +1,5 @@
 from typing import Optional
 from pyspark.sql import SparkSession, DataFrame
-from py4j.protocol import Py4JJavaError
 
 from odibi_de_v2.core import DataReader
 from odibi_de_v2.core.enums import DataType, ErrorType
@@ -8,8 +7,9 @@ from odibi_de_v2.utils import (
     enforce_types, validate_non_empty,
     benchmark, log_call
 )
-from odibi_de_v2.logger import log_exceptions, log_and_optionally_raise
+from odibi_de_v2.logger import log_and_optionally_raise
 from odibi_de_v2.utils.method_chain import run_method_chain
+from odibi_de_v2.utils import wrap_read_errors
 
 
 class SparkStreamingDataReader(DataReader):
@@ -50,12 +50,7 @@ class SparkStreamingDataReader(DataReader):
     @validate_non_empty(["file_path"])
     @benchmark(module="INGESTION", component="SparkStreamingDataReader")
     @log_call(module="INGESTION", component="SparkStreamingDataReader")
-    @log_exceptions(
-        module="INGESTION",
-        component="SparkStreamingDataReader",
-        error_type=ErrorType.READ_ERROR,
-        raise_type=RuntimeError
-    )
+    @wrap_read_errors(component="SparkStreamingDataReader")
     def read_data(
         self,
         data_type: DataType,
@@ -93,69 +88,17 @@ class SparkStreamingDataReader(DataReader):
             True
         """
         spark = spark or SparkSession.builder.getOrCreate()
+        # Prepare method chain
+        method_chain = {
+            "format": "cloudFiles",
+            **kwargs}
 
-        try:
-            log_and_optionally_raise(
-                module="INGESTION",
-                component="SparkStreamingDataReader",
-                method="read_data",
-                error_type=ErrorType.NO_ERROR,
-                message=f"Starting streaming read for {data_type.value.upper()} at {file_path}",
-                level="INFO")
+        # Inject cloudFiles.format into the .options() call
+        if "options" not in method_chain:
+            method_chain["options"] = {}
 
-            # Prepare method chain
-            method_chain = {
-                "format": "cloudFiles",
-                **kwargs}
+        method_chain["options"]["cloudFiles.format"] = data_type.value.lower()
 
-            # Inject cloudFiles.format into the .options() call
-            if "options" not in method_chain:
-                method_chain["options"] = {}
-
-            method_chain["options"]["cloudFiles.format"] = data_type.value.lower()
-
-            reader = run_method_chain(spark.readStream, method_chain)
-            df = reader.load(file_path)
-
-            log_and_optionally_raise(
-                module="INGESTION",
-                component="SparkStreamingDataReader",
-                method="read_data",
-                error_type=ErrorType.NO_ERROR,
-                message=f"Successfully created streaming DataFrame from {file_path}",
-                level="INFO")
-            return df
-
-        except PermissionError as e:
-            raise PermissionError(
-                "Permission denied while accessing file: "
-                f"{file_path} \n {e}") from e
-        except FileNotFoundError as e:
-            raise FileNotFoundError(
-                f"{data_type.value.upper()} "
-                f"file not found: {file_path} \n {e}"
-                ) from e
-        except IsADirectoryError as e:
-            raise IsADirectoryError(
-                "Expected a file but got a directory: "
-                f"{file_path} \n {e}") from e
-
-        except ValueError as e:
-            raise ValueError(
-                f"Invalid or empty {data_type.value.upper()} file: "
-                f"{file_path} \n {e}") from e
-        except OSError as e:
-            raise OSError(
-                f"I/O error while reading {data_type.value.upper()} "
-                f"file: {file_path} \n {e}") from e
-        except NotImplementedError as e:
-            raise NotImplementedError(
-                f"Unsupported data type: {data_type.value} \n {e}") from e
-        except Py4JJavaError as e:
-            raise RuntimeError(
-                f"Spark read error while reading "
-                f"{data_type.value.upper()} file: {str(e.java_exception)}") from e
-        except Exception as e:
-            raise RuntimeError(
-                f"Unexpected error while reading {data_type.value.upper()} "
-                f"file: {file_path} \n {e}") from e
+        reader = run_method_chain(spark.readStream, method_chain)
+        df = reader.load(file_path)
+        return df
