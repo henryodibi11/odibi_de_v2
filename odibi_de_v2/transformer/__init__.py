@@ -4,7 +4,7 @@ from .spark import (
     SparkEventSplitter,SparkRuleBasedMapper,SparkSteamPropertyExtractor,
     SparkPivotTransformer,SparkUnpivotTransformer,SparkPivotWithCalculationTransformer,
     SparkPivotSteamPropertyTransformer,SparkSteamWorkflowTransformer,
-    SparkWorkflowTransformer,SparkHumidityRatioExtractor,SparkWeatherWorkflowTransformer)
+    SparkWorkflowTransformer,SparkHumidityRatioExtractor,SparkWeatherWorkflowTransformer,SparkWorkflowNode)
 
 from .pandas import (
     PandasColumnRenamer,
@@ -25,7 +25,6 @@ from .transformer_provider import TransformerProvider
 from .sql_generator_from_config import SQLGeneratorFromConfig
 from .transformer_from_config import TransformerFromConfig
 from .transformer_orchestrator import TransformerOrchestrator
-from .spark_workflow_node import SparkWorkflowNode
 
 
 __all__ = [
