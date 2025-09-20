@@ -12,6 +12,7 @@ from odibi_de_v2.utils import (
 from odibi_de_v2.logger import (
     log_and_optionally_raise, log_exceptions)
 from odibi_de_v2.core.enums import ErrorType
+from odibi_de_v2.utils import wrap_read_errors
 
 
 class PandasDataReader(DataReader):
@@ -51,11 +52,7 @@ class PandasDataReader(DataReader):
     @ensure_output_type(pd.DataFrame)
     @benchmark(module="INGESTION", component="PandasDataReader")
     @log_call(module="INGESTION", component="PandasDataReader")
-    @log_exceptions(
-        module="INGESTION",
-        component="PandasDataReader",
-        error_type=ErrorType.READ_ERROR,
-        raise_type=RuntimeError)
+    @wrap_read_errors(component="PandasDataReader")
     def read_data(
         self,
         data_type: DataType,
@@ -95,67 +92,19 @@ class PandasDataReader(DataReader):
             ...     file_path="data/sample.csv",
             ...     sep=";", encoding="utf-8")
         """
-        try:
-            log_and_optionally_raise(
-                module="INGESTION",
-                component="PandasDataReader",
-                method="read_data",
-                error_type=ErrorType.NO_ERROR,
-                message=(
-                    f"Attempting to read {data_type.value.upper()} "
-                    f"file from: {file_path}."),
-                level="INFO")
-            match data_type:
-                case DataType.CSV:
-                    return pd.read_csv(file_path, **kwargs)
-                case DataType.JSON:
-                    return pd.read_json(file_path, **kwargs)
-                case DataType.PARQUET:
-                    return pd.read_parquet(file_path, **kwargs)
-                case DataType.AVRO:
-                    return self._read_avro(file_path, **kwargs)
-                case DataType.SQL:
-                    return self._read_sql(file_path, **kwargs)
-                case _:
-                    raise NotImplementedError
-        except PermissionError as e:
-            raise PermissionError(
-                "Permission denied while accessing file: "
-                f"{file_path} \n {e}") from e
-        except FileNotFoundError as e:
-            raise FileNotFoundError(
-                f"{data_type.value.upper()} "
-                f"file not found: {file_path} \n {e}"
-                ) from e
-        except IsADirectoryError as e:
-            raise IsADirectoryError(
-                "Expected a file but got a directory: "
-                f"{file_path} \n {e}") from e
-        except ValueError as e:
-            raise ValueError(
-                f"Invalid or empty {data_type.value.upper()} file: "
-                f"{file_path} \n {e}") from e
-        except OSError as e:
-            raise OSError(
-                f"I/O error while reading {data_type.value.upper()} "
-                f"file: {file_path} \n {e}") from e
-        except NotImplementedError as e:
-            raise NotImplementedError(
-                f"Unsupported data type: {data_type.value} \n {e}") from e
-        except Exception as e:
-            raise RuntimeError(
-                f"Unexpected error while reading {data_type.value.upper()} "
-                f"file: {file_path} \n {e}") from e
-        finally:
-            log_and_optionally_raise(
-                module="INGESTION",
-                component="PandasDataReader",
-                method="read_data",
-                error_type=ErrorType.NO_ERROR,
-                message=(
-                    f"Successfully read {data_type.value.upper()} "
-                    f"file from: {file_path}."),
-                level="INFO")
+        match data_type:
+            case DataType.CSV:
+                return pd.read_csv(file_path, **kwargs)
+            case DataType.JSON:
+                return pd.read_json(file_path, **kwargs)
+            case DataType.PARQUET:
+                return pd.read_parquet(file_path, **kwargs)
+            case DataType.AVRO:
+                return self._read_avro(file_path, **kwargs)
+            case DataType.SQL:
+                return self._read_sql(file_path, **kwargs)
+            case _:
+                raise NotImplementedError
 
     def _read_avro(
         self,
@@ -263,4 +212,3 @@ class PandasDataReader(DataReader):
 
         except Exception as e:
             raise RuntimeError(f"Failed to read SQL data: {e}") from e
-
