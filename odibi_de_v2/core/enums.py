@@ -252,3 +252,37 @@ class ErrorType(Enum):
     SAVE_ERROR = "SAVE_ERROR"
     INIT_ERROR = "INIT_ERROR"
     TRANSFORM_ERROR = "TRANSFORM_ERROR"
+
+
+class ColumnType(Enum):
+    """
+    Logical column categories supported by odibi_de.
+
+    These categories are used across utilities like type detection,
+    null-filling, and schema validation. They provide a unified
+    way to reason about Pandas and Spark dtypes.
+
+    Attributes:
+        NUMERIC (str): Numeric columns (int, float, decimal).
+        STRING (str): String or object columns.
+        BOOLEAN (str): Boolean / logical columns.
+        DATETIME (str): Date or timestamp columns.
+
+    Example:
+        >>> ColumnType.NUMERIC.value
+        'numeric'
+
+        >>> ColumnType.STRING.value
+        'string'
+
+        >>> ColumnType.BOOLEAN.value
+        'boolean'
+
+        >>> ColumnType.DATETIME.value
+        'datetime'
+    """
+
+    NUMERIC = "numeric"
+    STRING = "string"
+    BOOLEAN = "boolean"
+    DATETIME = "datetime"
