@@ -35,5 +35,5 @@ __all__ = [
     "SparkWorkflowTransformer",
     "SparkHumidityRatioExtractor",
     "SparkWeatherWorkflowTransformer",
-    "SparkWorkflowNode
+    "SparkWorkflowNode"
 ]
