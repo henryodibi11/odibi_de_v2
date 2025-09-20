@@ -23,7 +23,8 @@ setup(
         "pytest",
         "black",
         "mypy",
-        "tqdm"
+        "tqdm",
+        "sqlalchemy"
     ],
     author="Henry Odibi",
     author_email="odibiengineering@gmail.com",
