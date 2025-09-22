@@ -3,44 +3,65 @@ from typing import List, Union
 
 class SQLUtils:
     @staticmethod
-    def quote_column(column: str, quote_style: str = '"') -> str:
+    def quote_column(column: str, quote_style: str = '"', always_quote: bool = True) -> str:
         """
-        Enhanced quoting logic to handle SQL expressions and aliases correctly.
+        Quote a SQL identifier safely.
+    
+        Args:
+            column (str): The column or identifier to quote.
+            quote_style (str, optional): The quote style to use. Defaults to '"'.
+                Supported: '"', '[', '`'.
+            always_quote (bool, optional): If True, always quote identifiers.
+                If False, quote only when necessary (reserved words, spaces, etc.).
+    
+        Returns:
+            str: Quoted identifier or expression.
+    
+        Notes:
+            - '*' is never quoted.
+            - SQL expressions like COUNT(col) are returned unchanged.
+            - Reserved keywords are always quoted regardless of `always_quote`.
         """
         RESERVED_KEYWORDS = {
             "select", "from", "where", "join", "group", "by", "order", "limit",
             "distinct", "on", "union", "intersect", "except", "insert",
             "update", "delete"
         }
-        if column == '*':
+    
+        if column == "*":
             return column
-
-        # Check if the column is already quoted
-        if (quote_style == '"' and column.startswith(
-            '"')) or \
-                (quote_style == '[' and column.startswith(
-                    '[')) or \
-                (quote_style == '`' and column.startswith(
-                    '`')):
+    
+        # Already quoted
+        if (quote_style == '"' and column.startswith('"')) or \
+           (quote_style == '[' and column.startswith('[')) or \
+           (quote_style == '`' and column.startswith('`')):
             return column
-
-        # Detect SQL expressions (e.g., COUNT(column), SUM(...))
+    
+        # SQL expression (e.g., COUNT(...))
         if "(" in column and ")" in column:
-            return column  # Assume valid SQL expression, do not quote
-
-        # Add quotes if the column contains spaces, special characters, or is
-        # a reserved keyword
-        if (" " in column or "(" in column or ")" in column or
-                column.lower(
-                    ) in RESERVED_KEYWORDS or not column.isidentifier()):
+            return column
+    
+        # Always quote mode
+        if always_quote:
             if quote_style == '"':
                 return f'"{column}"'
-            elif quote_style == '[':
+            elif quote_style == "[":
                 return f'[{column}]'
-            elif quote_style == '`':
+            elif quote_style == "`":
                 return f'`{column}`'
-
-        return column  # Return unquoted if no quoting is necessary
+    
+        # Selective quoting mode
+        if (" " in column or
+            column.lower() in RESERVED_KEYWORDS or
+            not column.isidentifier()):
+            if quote_style == '"':
+                return f'"{column}"'
+            elif quote_style == "[":
+                return f'[{column}]'
+            elif quote_style == "`":
+                return f'`{column}`'
+    
+        return column
 
     @staticmethod
     def parse_conditions(
