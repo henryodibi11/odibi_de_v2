@@ -65,79 +65,109 @@ class SQLUtils:
 
     @staticmethod
     def parse_conditions(
-        conditions: Union[str, List[Union[str, tuple]]]
+        conditions: Union[str, List[Union[str, tuple]]],
+        quote_style: str = '"',
+        auto_quote: bool = False
     ) -> str:
         """
-    Parse nested AND/OR conditions for WHERE or JOIN clauses.
-
-    This method processes conditions provided as strings, lists, or tuples
-    into valid SQL expressions. It supports nested logical operations such as
-    `AND` and `OR`.
-
-    Args:
-        conditions (Union[str, List[Union[str, tuple]]]): The conditions to
-        parse.
-            Supported formats:
-            - `str`: A simple SQL condition (e.g., "age > 30").
-            - `List[str]`: A list of AND-ed conditions (
-                e.g., ["age > 30", "status = 'active'"]).
-            - `List[tuple]`: A nested structure for logical conditions (e.g.,
-            [("age > 30", "AND", "status = 'active'")]).
-            - `tuple`: A single logical condition in the form
-            `(left_condition, operator, right_condition)`.
-
-    Returns:
-        str: The parsed SQL condition as a string.
-
-    Raises:
-        ValueError: If the conditions are not in a valid format.
-
-    Examples:
-        # Simple condition
-        SQLUtils.parse_conditions("age > 30")
-        # Output: "age > 30"
-
-        # List of AND-ed conditions
-        SQLUtils.parse_conditions(["age > 30", "status = 'active'"])
-        # Output: "age > 30 AND status = 'active'"
-
-        # Nested logical conditions
-        SQLUtils.parse_conditions([("age > 30", "AND", "status = 'active'")])
-        # Output: "(age > 30 AND status = 'active')"
-
-        # Complex nested conditions
-        SQLUtils.parse_conditions([
-            ("age > 30", "AND", "status = 'active'"),
-            "salary > 50000"
-        ])
-        # Output: "(age > 30 AND status = 'active') AND salary > 50000"
-
-    Notes:
-        - Logical operators like `AND` and `OR` are case-sensitive and must be
-        provided in uppercase.
-        - This method is used internally by the `SelectQueryBuilder` for WHERE
-        and JOIN clauses.
-        - Ensure that conditions are valid SQL expressions before passing them
-        to this method.
-    """
-        if isinstance(conditions, str):
-            return conditions.strip()
-
-        if isinstance(conditions, list):
-            parsed = []
-            for condition in conditions:
-                if isinstance(condition, tuple) and len(condition) == 3:
-                    left, operator, right = condition
-                    parsed.append(
-                        f"({SQLUtils.parse_conditions(left)} {operator} {SQLUtils.parse_conditions(right)})"
-                    )
-                elif isinstance(condition, str):
-                    parsed.append(condition.strip())
+        Parse and format conditions for WHERE or JOIN clauses.
+    
+        This method converts conditions provided as strings, lists, or tuples
+        into valid SQL expressions. It supports nested logical operations such as
+        `AND` and `OR`, and can optionally auto-quote identifiers for consistency.
+    
+        Args:
+            conditions (Union[str, List[Union[str, tuple]]]): The conditions to parse.
+                Supported formats:
+                - `str`: A simple SQL condition (e.g., "age > 30").
+                - `List[str]`: A list of AND-ed conditions
+                    (e.g., ["age > 30", "status = 'active'"]).
+                - `List[tuple]`: A nested structure for logical conditions
+                    (e.g., [("age > 30", "AND", "status = 'active'")]).
+                - `tuple`: A single logical condition in the form
+                    `(left_condition, operator, right_condition)`.
+    
+            quote_style (str, optional): Quoting style for identifiers. Defaults to '"'.
+                Supported: '"', '[', '`'.
+    
+            auto_quote (bool, optional): If True, automatically quote identifiers
+                inside conditions (e.g., "users.id" → "\"users\".\"id\"").
+                Defaults to False (raw passthrough).
+    
+        Returns:
+            str: The parsed SQL condition as a string.
+    
+        Raises:
+            ValueError: If the conditions are not in a valid format.
+    
+        Examples:
+            # Simple condition
+            SQLUtils.parse_conditions("age > 30")
+            # Output: "age > 30"
+    
+            # List of AND-ed conditions
+            SQLUtils.parse_conditions(["age > 30", "status = 'active'"])
+            # Output: "(age > 30 AND status = 'active')"
+    
+            # Nested logical conditions
+            SQLUtils.parse_conditions([("age > 30", "AND", "status = 'active'")])
+            # Output: "(age > 30 AND status = 'active')"
+    
+            # Complex nested conditions
+            SQLUtils.parse_conditions([
+                ("age > 30", "AND", "status = 'active'"),
+                "salary > 50000"
+            ])
+            # Output: "((age > 30 AND status = 'active') AND salary > 50000)"
+    
+            # Auto-quoted identifiers
+            SQLUtils.parse_conditions("users.id = o.user_id", auto_quote=True)
+            # Output: "\"users\".\"id\" = \"o\".\"user_id\""
+    
+        Notes:
+            - Logical operators like `AND` and `OR` are case-sensitive and must
+              be provided in uppercase.
+            - Auto-quoting is helpful for enforcing consistent quoting in
+              generated SQL, but for complex expressions (e.g., UPPER(users.name))
+              you may prefer raw conditions with auto_quote=False.
+            - This method is used internally by `SelectQueryBuilder` for WHERE
+              and JOIN clauses.
+        """
+        def _quote_identifier(token: str) -> str:
+            if "." in token and not token.strip().startswith(("'", '"')):
+                parts = token.split(".")
+                return ".".join(SQLUtils.quote_column(p, quote_style) for p in parts)
+            return SQLUtils.quote_column(token, quote_style)
+    
+        def _process(expr: str) -> str:
+            if not auto_quote:
+                return expr
+            tokens = expr.split()
+            processed = []
+            for tok in tokens:
+                # leave operators and literals untouched
+                if tok.upper() in {"AND", "OR", "=", "<", ">", "<=", ">=", "<>", "!="}:
+                    processed.append(tok)
+                elif tok.startswith("'") and tok.endswith("'"):
+                    processed.append(tok)
                 else:
-                    raise ValueError(f"Invalid condition format: {condition}")
-            return " AND ".join(parsed)  # Default to AND for lists
-
-        raise ValueError("Conditions must be a string, list, or tuple.")
+                    processed.append(_quote_identifier(tok))
+            return " ".join(processed)
+    
+        if isinstance(conditions, str):
+            return _process(conditions)
+    
+        if isinstance(conditions, list):
+            if all(isinstance(c, str) for c in conditions):
+                return "(" + " AND ".join(_process(c) for c in conditions) + ")"
+            elif all(isinstance(c, tuple) and len(c) == 3 for c in conditions):
+                return "(" + " ".join(
+                    _process(part) if i % 2 == 0 else part
+                    for i, part in enumerate(conditions[0])
+                ) + ")"
+    
+        raise ValueError("Invalid condition format")
+    
 
     @staticmethod
     def format_columns(
