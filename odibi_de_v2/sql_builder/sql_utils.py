@@ -607,19 +607,19 @@ class SQLUtils:
         - Ensure aggregate functions and column names are correctly formatted
         before validation.
     """
-    valid_references = {
-        SQLUtils.normalize_identifier(col.split(" AS ")[-1])
-        if " AS " in col else SQLUtils.normalize_identifier(col)
-        for col in group_by_columns + selected_aggregates
-    }
-
-    for condition in having_conditions:
-        norm_condition = SQLUtils.normalize_identifier(condition)
-        if not any(ref in norm_condition for ref in valid_references):
-            raise ValueError(
-                f"Invalid HAVING condition: '{condition}'. "
-                f"Must reference one of: {valid_references}."
-            )
+        valid_references = {
+            SQLUtils.normalize_identifier(col.split(" AS ")[-1])
+            if " AS " in col else SQLUtils.normalize_identifier(col)
+            for col in group_by_columns + selected_aggregates
+        }
+    
+        for condition in having_conditions:
+            norm_condition = SQLUtils.normalize_identifier(condition)
+            if not any(ref in norm_condition for ref in valid_references):
+                raise ValueError(
+                    f"Invalid HAVING condition: '{condition}'. "
+                    f"Must reference one of: {valid_references}."
+                )
 
     
     @staticmethod
