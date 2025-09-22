@@ -562,83 +562,82 @@ class SelectQueryBuilder(BaseQueryBuilder):
         raise_type=RuntimeError)
     def add_case(
         self,
-        cases: List[Dict[str, str]],
+        cases: List[Union[Dict[str, str], tuple]],
         else_value: Optional[str] = None,
         alias: Optional[str] = None
     ) -> 'SelectQueryBuilder':
         """
         Add a CASE statement to the SELECT clause.
-
+    
         This method allows you to define conditional logic using a CASE
         statement. You can specify multiple WHEN-THEN conditions, an optional
         ELSE value, and an alias for the result.
-
+    
         Args:
-            cases (List[Dict[str, str]]): A list of dictionaries defining the
-            CASE conditions.
-                Each dictionary must include:
-                - "condition" (str): The WHEN condition.
-                - "result" (str): The THEN result.
-            else_value (Optional[str], optional):
-            The value to use if no conditions are met.
+            cases (List[Union[Dict[str, str], tuple]]): A list of conditions for the CASE statement.
+                Supported formats:
+                    - dict: {"condition": str, "result": str}
+                    - tuple: (condition: str, result: str)
+            else_value (Optional[str], optional): The value to use if no conditions are met.
                 Defaults to None, which excludes an ELSE clause.
             alias (Optional[str], optional): An alias for the CASE result.
                 Defaults to None.
-
+    
         Returns:
             SelectQueryBuilder: The updated query builder instance.
-
+    
         Raises:
-            ValueError: If no conditions are provided or if any entry in
-            `cases` is missing a "condition" or "result" key.
-
+            ValueError: If no conditions are provided or if any entry is invalid.
+    
         Examples:
-            # Simple CASE statement
+            # Dict style
             builder.add_case(
                 cases=[
-                    {"condition": "status = 'active'",
-                    "result": "'Active'"},
-                    {"condition": "status = 'inactive'",
-                    "result": "'Inactive'"}
+                    {"condition": "status = 'active'", "result": "'Active'"},
+                    {"condition": "status = 'inactive'", "result": "'Inactive'"}
                 ],
                 else_value="'Unknown'",
                 alias="status_label"
             )
-
-            # Combine with other SELECT clauses
-            builder.select(["id", "name"]).add_case(
+    
+            # Tuple style
+            builder.add_case(
                 cases=[
-                    {"condition": "age < 18", "result": "'Minor'"},
-                    {"condition": "age >= 18", "result": "'Adult'"}
+                    ("age < 18", "'Minor'"),
+                    ("age >= 18", "'Adult'")
                 ],
                 alias="age_group"
             )
-
+    
         Notes:
-            - The CASE statement is added to the SELECT clause alongside other
-            columns.
+            - The CASE statement is added to the SELECT clause alongside other columns.
             - Conditions and results must be valid SQL expressions.
-            - The alias is quoted using `SQLUtils.quote_column` to handle
-            reserved keywords or special characters.
+            - The alias is quoted using `SQLUtils.quote_column` to handle reserved keywords or special characters.
         """
         if not cases:
-            raise ValueError(
-                "At least one WHEN condition is required for a CASE statement."
-                )
-
+            raise ValueError("At least one WHEN condition is required for a CASE statement.")
+    
         case_expression = "CASE"
         for case in cases:
-            if "condition" not in case or "result" not in case:
-                raise ValueError(
-                    "Each CASE entry must have 'condition' and 'result' keys.")
-            case_expression += f" WHEN {case['condition']} THEN {case['result']}"
-
+            if isinstance(case, dict):
+                condition, result = case.get("condition"), case.get("result")
+            elif isinstance(case, tuple) and len(case) == 2:
+                condition, result = case
+            else:
+                raise ValueError("Each CASE entry must be a dict with 'condition'/'result' keys or a 2-tuple.")
+    
+            if not condition or not result:
+                raise ValueError("CASE entry must have both a condition and a result.")
+    
+            case_expression += f" WHEN {condition} THEN {result}"
+    
         if else_value:
             case_expression += f" ELSE {else_value}"
-
+    
         case_expression += " END"
         if alias:
             case_expression += f" AS {SQLUtils.quote_column(alias, self.quote_style)}"
+    
         if case_expression not in self.columns:
             self.columns.append(case_expression)
             log_and_optionally_raise(
@@ -659,6 +658,8 @@ class SelectQueryBuilder(BaseQueryBuilder):
                 level="INFO"
             )
         return self
+
+
     @log_call(module="SQL_BUILDER", component="SelectQueryBuilder")
     @enforce_types()
     @log_exceptions(
