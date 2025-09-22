@@ -491,7 +491,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
         """
         if not function or column is None:
             raise ValueError("Function and column are required for aggregates.")
-
+    
         # Handle COUNT(*) and similar
         if column == "*":
             agg_col = "*"
@@ -513,10 +513,10 @@ class SelectQueryBuilder(BaseQueryBuilder):
                 message=f"Quoted column: {column} -> {agg_col}",
                 level="DEBUG"
             )
-
+    
         # Build the aggregate expression
         aggregate_expression = f"{function}({agg_col})"
-
+    
         # Quote alias if provided
         if alias:
             quoted_alias = SQLUtils.quote_column(alias, self.quote_style)
@@ -529,7 +529,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
                 message=f"Quoted alias: {alias} -> {quoted_alias}",
                 level="DEBUG"
             )
-
+    
         # Avoid duplicates in the SELECT clause
         if aggregate_expression not in self.columns:
             self.columns.append(aggregate_expression)
@@ -550,8 +550,9 @@ class SelectQueryBuilder(BaseQueryBuilder):
                 message=f"Aggregate already exists, skipping: {aggregate_expression}",
                 level="INFO"
             )
-
+    
         return self
+        
     @log_call(module="SQL_BUILDER", component="SelectQueryBuilder")
     @enforce_types()
     @log_exceptions(
