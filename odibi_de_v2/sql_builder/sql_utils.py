@@ -650,23 +650,27 @@ class SQLUtils:
         - This method is typically used internally by the `SelectQueryBuilder`
         to construct the ORDER BY clause.
     """
-        if not columns:
-            return ""
+    formatted = []
+    for col in columns:
+        if isinstance(col, dict):
+            column = SQLUtils.quote_column(col["column"], quote_style)
+            order = col.get("order", "ASC").upper()
+            if order not in {"ASC", "DESC"}:
+                raise ValueError(f"Invalid order '{order}'. Use 'ASC' or 'DESC'.")
 
-        formatted = []
-        for col in columns:
-            if isinstance(col, dict):
-                column = SQLUtils.quote_column(col["column"], quote_style)
-                order = col.get("order", "ASC").upper()
-                if order not in {"ASC", "DESC"}:
-                    raise ValueError(
-                        f"Invalid order '{order}'. Use 'ASC' or 'DESC'.")
-                formatted.append(f"{column} {order}")
-            elif isinstance(col, str):
-                formatted.append(
-                    f"{SQLUtils.quote_column(col, quote_style)} ASC")
-            else:
-                raise ValueError(
-                    f"Unsupported column type: {type(col)}. Use str or dict.")
+            nulls = col.get("nulls")
+            nulls_clause = ""
+            if nulls:
+                if nulls.upper() not in {"FIRST", "LAST"}:
+                    raise ValueError(f"Invalid nulls option '{nulls}'. Use 'FIRST' or 'LAST'.")
+                nulls_clause = f" NULLS {nulls.upper()}"
 
-        return f"ORDER BY {', '.join(formatted)}"
+            formatted.append(f"{column} {order}{nulls_clause}")
+
+        elif isinstance(col, str):
+            formatted.append(f"{SQLUtils.quote_column(col, quote_style)} ASC")
+
+        else:
+            raise ValueError(f"Invalid ORDER BY column: {col}")
+
+    return "ORDER BY " + ", ".join(formatted)
