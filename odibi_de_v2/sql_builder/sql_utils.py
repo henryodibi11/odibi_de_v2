@@ -3,6 +3,24 @@ from typing import List, Union
 
 class SQLUtils:
     @staticmethod
+    def normalize_identifier(identifier: str) -> str:
+        """
+        Normalize a SQL identifier by stripping quotes, backticks, and brackets.
+    
+        Args:
+            identifier (str): The SQL identifier to normalize.
+    
+        Returns:
+            str: The normalized identifier without surrounding quotes/brackets.
+        """
+        return (
+            identifier.replace("`", "")
+            .replace('"', "")
+            .replace("[", "")
+            .replace("]", "")
+            .strip()
+        )
+    @staticmethod
     def quote_column(column: str, quote_style: str = '"', always_quote: bool = True) -> str:
         """
         Quote a SQL identifier safely.
@@ -527,26 +545,14 @@ class SQLUtils:
             - Identifiers are normalized (quotes/backticks/brackets stripped) before
               validation.
         """
-    
-        def normalize(identifier: str) -> str:
-            return (
-                identifier.replace("`", "")
-                .replace('"', "")
-                .replace("[", "")
-                .replace("]", "")
-                .strip()
-            )
-    
-        # Normalize selected columns & aliases
         normalized_selected = {
-            normalize(col.split(" AS ")[-1]) if " AS " in col else normalize(col)
+            SQLUtils.normalize_identifier(col.split(" AS ")[-1])
+            if " AS " in col else SQLUtils.normalize_identifier(col)
             for col in selected_columns
         }
+        normalized_raw = {SQLUtils.normalize_identifier(expr) for expr in raw_expressions}
+        normalized_group_by = [SQLUtils.normalize_identifier(col) for col in group_by_columns]
     
-        normalized_raw = {normalize(expr) for expr in raw_expressions}
-        normalized_group_by = [normalize(col) for col in group_by_columns]
-    
-        # Validate GROUP BY
         missing_columns = [
             col for col in normalized_group_by
             if col not in normalized_selected and col not in normalized_raw
@@ -557,7 +563,6 @@ class SQLUtils:
                 f"Must exist in SELECT clause, valid raw expressions, or aliases. "
                 f"Valid options: {normalized_selected | normalized_raw}"
             )
-
 
     @staticmethod
     def validate_having(
@@ -602,23 +607,19 @@ class SQLUtils:
         - Ensure aggregate functions and column names are correctly formatted
         before validation.
     """
-        def normalize(identifier: str) -> str:
-            return identifier.replace("`", "").replace('"', "").replace("[", "").replace("]", "").strip()
-    
-        # Build set of valid references (normalized)
-        valid_references = {
-            normalize(col.split(" AS ")[-1])  # aliases
-            if " AS " in col else normalize(col)
-            for col in group_by_columns + selected_columns
-        }
-    
-        # Validate each condition
-        for condition in having_conditions:
-            if not any(ref in normalize(condition) for ref in valid_references):
-                raise ValueError(
-                    f"Invalid HAVING condition: '{condition}'. "
-                    f"Must reference one of: {valid_references}."
-                )
+    valid_references = {
+        SQLUtils.normalize_identifier(col.split(" AS ")[-1])
+        if " AS " in col else SQLUtils.normalize_identifier(col)
+        for col in group_by_columns + selected_aggregates
+    }
+
+    for condition in having_conditions:
+        norm_condition = SQLUtils.normalize_identifier(condition)
+        if not any(ref in norm_condition for ref in valid_references):
+            raise ValueError(
+                f"Invalid HAVING condition: '{condition}'. "
+                f"Must reference one of: {valid_references}."
+            )
 
     
     @staticmethod
