@@ -59,6 +59,7 @@ class SQLQueryProvider:
         """
         self.config = config
         self.query_type: str = config.get("query_type", "select").lower()
+        self.quote_style = config.get("quote_style","`")
 
     @log_call(module="SQL_BUILDER", component="SQLQueryProvider")
     @enforce_types()
@@ -116,7 +117,7 @@ class SQLQueryProvider:
         table = self.config.get("table")
         if not table:
             raise ValueError("Config must include a 'table' key for SELECT queries.")
-        builder = SelectQueryBuilder(table)
+        builder = SelectQueryBuilder(table,self.quote_style)
 
         # Note: we intentionally do NOT apply select/joins/etc here
         # SQLTransformerFromConfig will orchestrate the builder
