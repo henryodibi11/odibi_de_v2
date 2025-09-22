@@ -489,58 +489,75 @@ class SQLUtils:
         raw_expressions: List[str]
     ):
         """
-    Ensure that GROUP BY columns are part of the SELECT clause or valid raw
-    expressions.
-
-    This method validates that all columns specified in the GROUP BY clause are
-    included in the SELECT clause or are valid raw expressions (e.g., aggregate
-    functions). It raises a `ValueError` if any GROUP BY column is invalid.
-
-    Args:
-        selected_columns (List[str]): Columns specified in the SELECT clause.
-        group_by_columns (List[str]): Columns specified in the GROUP BY clause.
-        raw_expressions (List[str]): Raw expressions used in the SELECT clause.
-
-    Raises:
-        ValueError: If a column in `group_by_columns` is not present in
-        `selected_columns` or `raw_expressions`.
-
-    Examples:
-        # Valid GROUP BY columns
-        SQLUtils.validate_group_by(
-            selected_columns=["department_id", "SUM(salary)"],
-            group_by_columns=["department_id"],
-            raw_expressions=["SUM(salary)"]
-        )  # Passes validation
-
-        # Invalid GROUP BY column
-        SQLUtils.validate_group_by(
-            selected_columns=["department_id", "SUM(salary)"],
-            group_by_columns=["job_title"],
-            raw_expressions=["SUM(salary)"]
-        )  # Raises ValueError
-
-    Notes:
-        - This method is used internally by the `SelectQueryBuilder` to ensure
-        that GROUP BY clauses are valid and aligned with the SELECT clause.
-        - Ensure that raw expressions are formatted consistently before
-        validation.
-    """
-
-        aliases = [
-            col.split(" AS ")[-1].strip()
-            for col in selected_columns if " AS " in col
-        ]
-
+        Ensure that GROUP BY columns are part of the SELECT clause or valid raw
+        expressions.
+    
+        This method validates that all columns specified in the GROUP BY clause are
+        included in the SELECT clause or are valid raw expressions (e.g., aggregate
+        functions). It normalizes identifiers by stripping quotes, brackets, and
+        backticks so different quoting styles are treated equivalently.
+    
+        Args:
+            selected_columns (List[str]): Columns specified in the SELECT clause.
+            group_by_columns (List[str]): Columns specified in the GROUP BY clause.
+            raw_expressions (List[str]): Raw expressions used in the SELECT clause.
+    
+        Raises:
+            ValueError: If a column in `group_by_columns` is not present in
+            `selected_columns` or `raw_expressions`.
+    
+        Examples:
+            # Valid GROUP BY columns
+            SQLUtils.validate_group_by(
+                selected_columns=["department_id", "SUM(salary)"],
+                group_by_columns=["department_id"],
+                raw_expressions=["SUM(salary)"]
+            )  # Passes validation
+    
+            # Invalid GROUP BY column
+            SQLUtils.validate_group_by(
+                selected_columns=["department_id", "SUM(salary)"],
+                group_by_columns=["job_title"],
+                raw_expressions=["SUM(salary)"]
+            )  # Raises ValueError
+    
+        Notes:
+            - This method is used internally by the `SelectQueryBuilder` to ensure
+              that GROUP BY clauses are valid and aligned with the SELECT clause.
+            - Identifiers are normalized (quotes/backticks/brackets stripped) before
+              validation.
+        """
+    
+        def normalize(identifier: str) -> str:
+            return (
+                identifier.replace("`", "")
+                .replace('"', "")
+                .replace("[", "")
+                .replace("]", "")
+                .strip()
+            )
+    
+        # Normalize selected columns & aliases
+        normalized_selected = {
+            normalize(col.split(" AS ")[-1]) if " AS " in col else normalize(col)
+            for col in selected_columns
+        }
+    
+        normalized_raw = {normalize(expr) for expr in raw_expressions}
+        normalized_group_by = [normalize(col) for col in group_by_columns]
+    
+        # Validate GROUP BY
         missing_columns = [
-            col for col in group_by_columns
-            if col not in selected_columns and col not in raw_expressions and col not in aliases
+            col for col in normalized_group_by
+            if col not in normalized_selected and col not in normalized_raw
         ]
         if missing_columns:
             raise ValueError(
-                f"Invalid GROUP BY column(s) {missing_columns}. "
-                "Must exist in SELECT clause, valid raw expressions, or aliases."
+                f"Invalid GROUP BY column(s): {missing_columns}. "
+                f"Must exist in SELECT clause, valid raw expressions, or aliases. "
+                f"Valid options: {normalized_selected | normalized_raw}"
             )
+
 
     @staticmethod
     def validate_having(
@@ -585,14 +602,25 @@ class SQLUtils:
         - Ensure aggregate functions and column names are correctly formatted
         before validation.
     """
-        valid_references = set(group_by_columns + selected_aggregates)
-
+        def normalize(identifier: str) -> str:
+            return identifier.replace("`", "").replace('"', "").replace("[", "").replace("]", "").strip()
+    
+        # Build set of valid references (normalized)
+        valid_references = {
+            normalize(col.split(" AS ")[-1])  # aliases
+            if " AS " in col else normalize(col)
+            for col in group_by_columns + selected_columns
+        }
+    
+        # Validate each condition
         for condition in having_conditions:
-            if not any(ref in condition for ref in valid_references):
+            if not any(ref in normalize(condition) for ref in valid_references):
                 raise ValueError(
-                    f"Invalid HAVING condition: '{condition}'. Must reference one of: {valid_references}."
+                    f"Invalid HAVING condition: '{condition}'. "
+                    f"Must reference one of: {valid_references}."
                 )
 
+    
     @staticmethod
     def build_order_by_clause(
         columns: List[Union[str, dict]],
