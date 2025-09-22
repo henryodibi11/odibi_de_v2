@@ -420,7 +420,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
                         base_expr = SQLUtils.quote_column(ident, self.quote_style)
                         formatted.append(f"{base_expr}.*")
                     # Quote plain identifiers, keep raw expressions untouched
-                    if col.isidentifier() or "." in col:
+                    elif col.isidentifier() or "." in col:
                         formatted.append(SQLUtils.quote_column(col, self.quote_style))
                     else:
                         formatted.append(col)
