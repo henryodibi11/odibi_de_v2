@@ -133,6 +133,13 @@ class SQLUtils:
             - This method is used internally by `SelectQueryBuilder` for WHERE
               and JOIN clauses.
         """
+
+        def is_number_literal(token: str) -> bool:
+            """Return True if token is an integer or decimal number (e.g., 42, -1, 3.14)."""
+            if token.startswith("-"):
+                token = token[1:]
+            return token.replace(".", "", 1).isdigit()
+    
         def _quote_identifier(token: str) -> str:
             if "." in token and not token.strip().startswith(("'", '"')):
                 parts = token.split(".")
@@ -145,11 +152,12 @@ class SQLUtils:
             tokens = expr.split()
             processed = []
             for tok in tokens:
-                # leave operators and literals untouched
                 if tok.upper() in {"AND", "OR", "=", "<", ">", "<=", ">=", "<>", "!="}:
                     processed.append(tok)
+                elif is_number_literal(tok):
+                    processed.append(tok)  # leave numbers unquoted
                 elif tok.startswith("'") and tok.endswith("'"):
-                    processed.append(tok)
+                    processed.append(tok)  # string literal
                 else:
                     processed.append(_quote_identifier(tok))
             return " ".join(processed)
@@ -167,7 +175,6 @@ class SQLUtils:
                 ) + ")"
     
         raise ValueError("Invalid condition format")
-    
 
     @staticmethod
     def format_columns(
