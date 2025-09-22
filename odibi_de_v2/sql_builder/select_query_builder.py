@@ -415,6 +415,10 @@ class SelectQueryBuilder(BaseQueryBuilder):
                     self.raw_columns.append(alias)
 
                 elif isinstance(col, str):
+                    if col.endswith(".*"):
+                        ident = col[:-2]
+                        base_expr = SQLUtils.quote_column(ident, self.quote_style)
+                        formatted.append(f"{base_expr}.*")
                     # Quote plain identifiers, keep raw expressions untouched
                     if col.isidentifier() or "." in col:
                         formatted.append(SQLUtils.quote_column(col, self.quote_style))
