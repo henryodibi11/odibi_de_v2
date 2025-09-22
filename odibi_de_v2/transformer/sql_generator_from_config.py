@@ -8,33 +8,90 @@ from odibi_de_v2.core.enums import ErrorType
 
 class SQLGeneratorFromConfig:
     """
-    Dynamically constructs a SQL query from a provided configuration dictionary.
+    Dynamically construct SQL queries from a configuration dictionary.
 
-    This class allows for the creation of complex SQL queries by specifying components such as
-    select columns, joins, conditions, and more through a structured configuration dictionary.
-    It supports a wide range of SQL functionalities including conditional statements, aggregation,
-    window functions, and set operations like UNION, INTERSECT, and EXCEPT.
+    This class provides a high-level interface for turning structured Python
+    dictionaries into valid SQL queries. It orchestrates an underlying
+    query builder (currently `SelectQueryBuilder`) and applies operations
+    such as SELECT, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, DISTINCT,
+    PIVOT, UNPIVOT, window functions, and set operations (UNION, INTERSECT,
+    EXCEPT).
 
     Attributes:
-        config (dict): Configuration dictionary specifying the components of the SQL query.
-        builder (Optional[Any]): An instance of a query builder class, initialized based on the provided configuration.
+        config (dict): The configuration dictionary that defines the query.
+        builder (Optional[Any]): The underlying query builder instance (e.g.,
+            SelectQueryBuilder).
+
+    Supported Config Keys:
+        - "query_type": The type of query (currently only "select").
+        - "table": The base table name (may include alias).
+        - "columns": List of columns or dicts for SELECT.
+        - "case_when": CASE expressions with conditions and aliases.
+        - "joins": List of join definitions (table, condition, type, auto_quote).
+        - "where": List or str of WHERE conditions.
+        - "group_by": List of GROUP BY columns.
+        - "having": HAVING condition(s).
+        - "order_by": List of str/dict columns for ORDER BY.
+        - "limit": Row limit (int).
+        - "distinct": Boolean flag for DISTINCT.
+        - "distinct_on": List of columns for DISTINCT ON.
+        - "ctes": Common Table Expressions (name + query).
+        - "unions": UNION or UNION ALL queries.
+        - "intersects": INTERSECT queries.
+        - "excepts": EXCEPT queries.
+        - "pivot": Pivot definition (column, values, aggregate_function, alias).
+        - "unpivot": Unpivot definition (value_column, category_column, columns, alias).
+        - "window_functions": List of window function definitions.
 
     Methods:
-        generate_query: Constructs and returns the complete SQL query as a string based on the `config`.
-
-    Raises:
-        RuntimeError: If any errors occur during the initialization or query building process.
+        transform() -> str:
+            Generate and return the complete SQL query string.
 
     Example:
         >>> config = {
-        ... "columns": ["id", "name"],
-        ... "table": "users",
-        ... "where": "age > 18",
-        ... "order_by": "name"}
-        >>> sql_generator = SQLGeneratorFromConfig(config)
-        >>> query = sql_generator.generate_query()
-        >>> print(query)  # Outputs the constructed SQL query string based on the configuration.
+        ...     "query_type": "select",
+        ...     "table": "orders o",
+        ...     "columns": [
+        ...         {"column": "o.id", "alias": "order_id"},
+        ...         {"column": "o.total", "alias": "order_total"},
+        ...         {"column": "u.name", "alias": "customer_name"}
+        ...     ],
+        ...     "joins": [
+        ...         {
+        ...             "table": "users u",
+        ...             "condition": "o.user_id = u.id",
+        ...             "type": "INNER",
+        ...             "auto_quote": True
+        ...         }
+        ...     ],
+        ...     "where": ["o.status = 'shipped'", "o.total > 100"],
+        ...     "group_by": ["u.name"],
+        ...     "having": "SUM(order_total) > 500",
+        ...     "order_by": [{"column": "o.total", "order": "DESC"}],
+        ...     "limit": 50
+        ... }
+        >>> generator = SQLGeneratorFromConfig(config)
+        >>> sql_query = generator.transform()
+        >>> print(sql_query)
+
+        SELECT `o.id` AS `order_id`,
+               `o.total` AS `order_total`,
+               `u.name` AS `customer_name`
+        FROM `orders` o
+        INNER JOIN `users` u ON `o`.`user_id` = `u`.`id`
+        WHERE o.status = 'shipped' AND o.total > 100
+        GROUP BY `u.name`
+        HAVING SUM(order_total) > 500
+        ORDER BY `o.total` DESC
+        LIMIT 50
+
+    Notes:
+        - Each config key maps directly to one `_apply_*` method.
+        - Only applies supported operations if present in the config.
+        - Keeps query building declarative: no need to write SQL strings manually.
+        - Acts as a bridge for metadata-driven pipelines, config files, or APIs.
     """
+
 
     @log_call(module="SQL_BUILDER", component="SQLGeneratorFromConfig")
     @enforce_types()
@@ -78,7 +135,7 @@ class SQLGeneratorFromConfig:
         component="SQLGeneratorFromConfig",
         error_type=ErrorType.Runtime_Error,
         raise_type=RuntimeError)
-    def generate_query(self) -> str:
+    def transform(self) -> str:
         """
         Generates and returns a complete SQL query string based on the internal configuration of the instance.
 
@@ -92,7 +149,7 @@ class SQLGeneratorFromConfig:
 
         Example:
             >>> Assuming an instance `query_builder` of a class with this method:
-            >>> sql_query = query_builder.generate_query()
+            >>> sql_query = query_builder.transform()
             >>> print(sql_query)
 
         Note:
@@ -117,7 +174,7 @@ class SQLGeneratorFromConfig:
         self._apply_intersects()
         self._apply_excepts()
 
-        return self.builder.build()
+        return self.builder.pretty_print(return_string=True)
 
     def _initialize_builder(self):
         """
@@ -150,6 +207,8 @@ class SQLGeneratorFromConfig:
         This method reads the 'columns' from the instance's configuration and, if specified, applies them to the
         builder's select method. This is typically used to filter out which columns to retrieve or manipulate in
         a database query or a data processing pipeline.
+        
+        Official key is 'columns'; 'select' is accepted for backward compatibility.
 
         Raises:
             AttributeError: If the builder object does not support the 'select' method.
@@ -158,75 +217,105 @@ class SQLGeneratorFromConfig:
             >>> Assuming `self.config` is set to `{"columns": ["name", "age"]}` and `self.builder` has a method
             ... `select`, this method will execute `self.builder.select(["name", "age"])`.
         """
-        columns = self.config.get("columns")
+        columns = self.config.get("columns") or self.config.get("select")
         if columns and hasattr(self.builder, "select"):
             self.builder.select(columns)
 
     def _apply_case_when(self):
         """
-        Applies conditional logic defined in the configuration to the builder object.
+        Applies CASE WHEN expressions from the configuration to the query builder.
 
-        This method retrieves a 'case_when' configuration from the instance's config attribute,
-        which specifies multiple conditional cases. For each case, it adds the conditional logic
-        to the builder using the builder's `add_case` method, if available.
+        This method looks for a "case_when" key in the config. Each entry must
+        define:
+            - cases (List[Dict[str, str]]): Each dict requires:
+                * "condition" (str): The WHEN condition.
+                * "result" (str): The THEN result.
+            - alias (str): Alias for the CASE expression.
+            - else_value (Optional[str]): Optional ELSE value.
 
-        Arguments:
-            None
+        Example config:
+            "case_when": [
+                {
+                    "cases": [
+                        {"condition": "status = 'active'", "result": "'Active'"},
+                        {"condition": "status = 'inactive'", "result": "'Inactive'"}
+                    ],
+                    "else_value": "'Unknown'",
+                    "alias": "status_label"
+                }
+            ]
 
-        Returns:
-            None
+        Example generated SQL:
+            CASE
+                WHEN status = 'active' THEN 'Active'
+                WHEN status = 'inactive' THEN 'Inactive'
+                ELSE 'Unknown'
+            END AS status_label
 
-        Raises:
-            AttributeError: If the builder object does not have the 'add_case' method.
-
-        Example:
-            Assuming the builder object supports `add_case` and the config is properly set,
-            this method might be used as follows:
-
-            >>> config = {
-            ... "case_when": [
-            ...    {
-            ...        "cases": [("status", "new"), ("priority", "high")],
-            ...        "else_value": "default",
-            ...        "alias": "case_1"}]}
-            example_instance = ClassName(config=config)
-            example_instance._apply_case_when()  # Applies the defined case logic to the builder
+        Notes:
+            - The CASE expression is added to the SELECT clause.
+            - All conditions and results must be valid SQL expressions.
+            - Aliases are quoted automatically by the builder for safety.
         """
+
         case_whens = self.config.get("case_when")
         if case_whens and hasattr(self.builder, "add_case"):
             for case in case_whens:
                 cases = case.get("cases", [])
-                else_value = case.get("else_value")
                 alias = case.get("alias")
-                if cases and alias:
-                    self.builder.add_case(cases, else_value, alias)
+                else_value = case.get("else_value")
+
+                if not cases or not alias:
+                    raise ValueError("Each CASE WHEN block must include 'cases' and 'alias'.")
+
+                # Validate each case dict
+                for c in cases:
+                    if "condition" not in c or "result" not in c:
+                        raise ValueError("Each case must have 'condition' and 'result' keys.")
+
+                self.builder.add_case(cases, else_value, alias)
 
     def _apply_joins(self):
         """
-        Applies join operations to a query builder based on configuration settings.
+        Applies JOIN clauses from the configuration to the query builder.
 
-        This method reads join configurations from the instance's `config` attribute and applies them to the
-        `builder` attribute if it supports the join operation. Each join configuration should specify the table
-        to join, the condition on which to join, and optionally the type of join (defaults to "INNER").
+        This method looks for a "joins" key in the config. Each entry must
+        define:
+            - table (str): The table name, optionally with alias
+            (e.g., "users u", "sales.orders o").
+            - condition (Union[str, List[Union[str, tuple]]]): The ON condition(s).
+            Supported formats:
+                * str → "t1.id = t2.id"
+                * List[str] → ["t1.id = t2.id", "t2.active = 1"]
+                * List[tuple] → [("t1.id = t2.id", "AND", "t2.active = 1")]
+            - type (Optional[str]): The join type, default "LEFT".
+            Supported: "INNER", "LEFT", "RIGHT", "FULL OUTER".
+            - auto_quote (Optional[bool]): If True, automatically quote
+            identifiers in the condition. Defaults to False.
 
-        Args:
-            None
+        Example config:
+            "joins": [
+                {
+                    "table": "users u",
+                    "condition": "o.user_id = u.id",
+                    "type": "INNER",
+                    "auto_quote": True
+                },
+                {
+                    "table": "products p",
+                    "condition": ["o.product_id = p.id", "p.active = 1"]
+                }
+            ]
 
-        Returns:
-            None
+        Example generated SQL:
+            INNER JOIN "users" u ON "o"."user_id" = "u"."id"
+            LEFT JOIN "products" p ON o.product_id = p.id AND p.active = 1
 
-        Raises:
-            AttributeError: If the `builder` attribute does not support the `join` method.
-
-        Example:
-            >>> Assuming `self.config` contains:
-            ... {
-            ... "joins": [
-            ...    {"table": "users", "condition": "users.id = orders.user_id", "type": "INNER"},
-            ...    {"table": "products", "condition": "products.id = orders.product_id"}]}
-            This method will configure the builder to perform an INNER join on the "users" table and a default INNER
-            join on the "products" table based on the specified conditions.
+        Notes:
+            - The config is passed directly into `SelectQueryBuilder.join`.
+            - Duplicate JOINs are automatically avoided.
         """
+
         joins = self.config.get("joins")
         if joins and hasattr(self.builder, "join"):
             for join in joins:
@@ -238,29 +327,29 @@ class SQLGeneratorFromConfig:
 
     def _apply_where(self):
         """
-        Applies filtering conditions to a query builder based on the configuration provided.
+        Applies WHERE conditions from the configuration to the query builder.
 
-        This method retrieves 'where' conditions from the instance's configuration and applies them to the query builder
-        if it supports the 'where' method. The conditions can be specified either as a single string or a list of
-        strings, each representing a condition.
+        This method looks for a "where" key in the config. Conditions can be
+        provided as either a string or a list of strings. Each condition is
+        passed into `SelectQueryBuilder.where`.
 
-        Args:
-            None: This method operates on the instance's attributes and does not take arguments directly.
+        Example config:
+            "where": "status = 'active'"
+            "where": ["age > 30", "country = 'US'"]
 
-        Returns:
-            None: This method does not return any value; it modifies the builder in place.
+        Example generated SQL:
+            WHERE status = 'active'
+            WHERE age > 30 AND country = 'US'
 
-        Raises:
-            AttributeError: If the builder does not have a 'where' method, an AttributeError will be raised.
-
-        Example:
-            Assuming `self.config` contains `{"where": ["age > 30", "status = 'active'"]}` and `self.builder` is an
-            instance of a query builder class with a `where` method:
-
-            self._apply_where()
-
-            This will apply the conditions "age > 30" and "status = 'active'" to the builder.
+        Notes:
+            - Conditions are validated by `SQLUtils.validate_conditions`.
+            - Conditions may include parameterized queries (e.g., "age > ?").
+            - Subquery conditions using tuples
+            (e.g., ("EXISTS", subquery_builder)) are supported directly by
+            `SelectQueryBuilder.where`, though this method currently assumes
+            strings in config.
         """
+
         where_conditions = self.config.get("where")
         if where_conditions and hasattr(self.builder, "where"):
             if isinstance(where_conditions, list):
@@ -271,26 +360,23 @@ class SQLGeneratorFromConfig:
 
     def _apply_group_by(self):
         """
-        Applies a 'group by' operation to the builder based on the configuration.
+        Applies GROUP BY columns from the configuration to the query builder.
 
-        This method retrieves the 'group_by' columns from the instance's configuration and, if present, applies them to
-        the builder's 'group_by' method. It is intended to be used internally within the class, hence the leading
-        underscore in the method name.
+        This method looks for a "group_by" key in the config and, if present,
+        applies it to the builder’s `group_by` method.
 
-        Args:
-            None: This method does not take parameters; it uses the instance's attributes.
+        Example config:
+            "group_by": ["department_id", "job_title"]
 
-        Returns:
-            None: This method does not return any value.
+        Example generated SQL:
+            GROUP BY department_id, job_title
 
-        Raises:
-            AttributeError: If the 'group_by' attribute is set in the configuration but the builder does not support the
-            'group_by' method.
-
-        Example:
-            Assuming an instance `instance` of the class has been properly configured and initialized:
-            >>> instance._apply_group_by()
-            This would apply the configured group by columns to the builder's group by method if applicable.
+        Notes:
+            - Columns in `group_by` must either appear in the SELECT clause,
+            be valid raw expressions, or be aliased expressions.
+            - If a schema is set on the builder, columns are validated
+            against it before being applied.
+            - Validation is handled by `SQLUtils.validate_group_by`.
         """
         group_by_columns = self.config.get("group_by")
         if group_by_columns and hasattr(self.builder, "group_by"):
@@ -298,29 +384,29 @@ class SQLGeneratorFromConfig:
 
     def _apply_having(self):
         """
-        Applies the 'HAVING' conditions specified in the configuration to the query builder.
+        Applies HAVING conditions from the configuration to the query builder.
 
-        This method retrieves 'having' conditions from the instance's configuration and applies them to the query
-        builder if it supports the 'having' method. The conditions can be specified as either a single string or a
-        list of strings.
+        This method looks for a "having" key in the config and applies it to
+        the builder’s `having` method. Conditions can be provided as either
+        a single string or a list of strings.
 
-        Args:
-            None
+        Example config:
+            "having": "SUM(salary) > 50000"
+            "having": ["COUNT(*) > 10", "AVG(bonus) > 1000"]
 
-        Returns:
-            None
+        Example generated SQL:
+            HAVING SUM(salary) > 50000
+            HAVING COUNT(*) > 10 AND AVG(bonus) > 1000
 
-        Raises:
-            AttributeError: If the builder does not support the 'having' method.
-
-        Example:
-            Assuming `self.config` contains `{"having": ["SUM(revenue) > 1000", "COUNT(customer_id) > 10"]}` and
-            `self.builder` supports 'having', this method will apply these conditions to filter the query results based
-            on the aggregated functions.
-
-        Note:
-            This method is intended to be used internally within the class and should not be accessed directly from
-            outside.
+        Notes:
+            - HAVING conditions are validated against GROUP BY columns and
+            selected aggregates by `SQLUtils.validate_having`.
+            - Conditions must reference either:
+                * Columns in the GROUP BY clause
+                * Aggregate functions (SUM, COUNT, etc.)
+                * Aliases from the SELECT clause
+            - Parameters are supported (e.g., "SUM(salary) > ?", params=[50000]),
+            though this config-based method assumes inline SQL strings.
         """
         having_conditions = self.config.get("having")
         if having_conditions and hasattr(self.builder, "having"):
@@ -332,24 +418,33 @@ class SQLGeneratorFromConfig:
 
     def _apply_order_by(self):
         """
-        Applies ordering to the query builder based on configuration settings.
+        Applies ORDER BY clauses from the configuration to the query builder.
 
-        This private method retrieves the 'order_by' configuration, if present, and applies it to the query builder to
-        order the results according to the specified columns.
+        This method looks for an "order_by" key in the config and applies it
+        to the builder’s `order_by` method. Ordering can be provided as:
+        - A simple string column name (default ASC).
+        - A list of strings (multiple columns, all ASC).
+        - A list of dicts specifying column, order, and optional null handling.
 
-        Args:
-            None
+        Example config:
+            "order_by": "name"
+            "order_by": ["name", "age"]
+            "order_by": [
+                {"column": "name", "order": "DESC"},
+                {"column": "age", "order": "ASC"},
+                {"column": "score", "order": "DESC", "nulls": "LAST"}
+            ]
 
-        Returns:
-            None
+        Example generated SQL:
+            ORDER BY "name" ASC
+            ORDER BY "name" ASC, "age" ASC
+            ORDER BY "name" DESC, "age" ASC, "score" DESC NULLS LAST
 
-        Raises:
-            AttributeError: If the 'builder' object does not have an 'order_by' method.
-
-        Example:
-            Assuming `self.config` contains {'order_by': 'name DESC'} and `self.builder` supports the 'order_by' method:
-
-            self._apply_order_by()  # This will order the query results by the 'name' column in descending order.
+        Notes:
+            - Uses `SQLUtils.build_order_by_clause` internally to ensure
+            correct quoting and validation.
+            - Invalid order values raise a ValueError (only ASC/DESC allowed).
+            - Nulls handling must be "FIRST" or "LAST" if specified.
         """
         order_by_columns = self.config.get("order_by")
         if order_by_columns and hasattr(self.builder, "order_by"):
@@ -357,25 +452,22 @@ class SQLGeneratorFromConfig:
 
     def _apply_limit(self):
         """
-        Applies a limit to the query builder based on the configuration.
+        Applies a LIMIT clause from the configuration to the query builder.
 
-        This method retrieves a 'limit' value from the instance's configuration and, if present and applicable, applies
-        this limit to the query builder associated with the instance.
+        This method looks for a "limit" key in the config and, if present,
+        applies it using the builder’s `limit` method. It restricts the number
+        of rows returned by the query.
 
-        Args:
-            None
+        Example config:
+            "limit": 10
 
-        Returns:
-            None
+        Example generated SQL:
+            LIMIT 10
 
-        Raises:
-            AttributeError: If the 'builder' attribute does not support the 'limit' method.
-
-        Example:
-            Assuming `self.config` contains {'limit': 10} and `self.builder` supports a `limit` method:
-
-            >>> self._apply_limit()
-            This would set the limit of the builder's query to 10.
+        Notes:
+            - The value must be a non-negative integer.
+            - Validation is handled by `SQLUtils.validate_limit`.
+            - If no "limit" is provided, the query returns all rows by default.
         """
         limit_value = self.config.get("limit")
         if limit_value is not None and hasattr(self.builder, "limit"):
@@ -383,30 +475,24 @@ class SQLGeneratorFromConfig:
 
     def _apply_distinct(self):
         """
-        Applies distinct settings to the query builder based on the configuration.
+        Applies DISTINCT or DISTINCT ON clauses from the configuration.
 
-        This method checks the configuration for 'distinct' and 'distinct_on' settings. If 'distinct' is set to True
-        and the builder supports the 'set_distinct' method, it will apply a general distinct filter. If 'distinct_on'
-        is provided and supported by the builder, it will apply a distinct filter based on specific fields.
+        This method looks for either a "distinct" or "distinct_on" key in the
+        config and applies them to the builder.
 
-        Args:
-            None
+        Example configs:
+            "distinct": True
+            "distinct_on": ["id", "created_at"]
 
-        Returns:
-            None
+        Example generated SQL:
+            SELECT DISTINCT "id", "name" FROM "employees"
+            SELECT DISTINCT ON ("id", "created_at") "id", "created_at", "name" FROM "orders"
 
-        Raises:
-            AttributeError: If the builder does not support the necessary distinct methods when they are configured to
-            be used.
-
-        Example:
-            Assuming `self.config` is set to `{"distinct": True, "distinct_on": ["name", "date"]}` and the builder has
-            the appropriate methods:
-
-            self._apply_distinct()
-
-            This will configure the builder to filter query results to distinct rows, specifically on the 'name' and
-            'date' fields.
+        Notes:
+            - "distinct" applies globally across all selected columns.
+            - "distinct_on" is supported only in certain databases (e.g., PostgreSQL).
+            - Columns in "distinct_on" must also appear in the SELECT clause.
+            - If both are provided, DISTINCT ON takes precedence.
         """
         if self.config.get("distinct") and hasattr(self.builder, "set_distinct"):
             self.builder.set_distinct()
@@ -416,32 +502,38 @@ class SQLGeneratorFromConfig:
 
     def _apply_ctes(self):
         """
-        Applies Common Table Expressions (CTEs) to a SQL query builder based on the configuration provided.
+        Applies Common Table Expressions (CTEs) from the configuration.
 
-        This method retrieves CTE configurations from the instance's configuration dictionary under the 'ctes' key.
-        Each CTE configuration must include a 'name' and a 'query'. The 'query' can be either a string representing a
-        SQL query or a dictionary that can be transformed into a SQL query using `SQLTransformerFromConfig`. It then
-        applies these CTEs to the query builder if it supports the `with_cte` method.
+        This method looks for a "ctes" key in the config. Each CTE must define:
+        - "name": the alias for the CTE.
+        - "query": either a raw SQL string or a nested config dict.
 
-        Args:
-            None. The method operates on the instance's attributes.
+        Example config:
+            "ctes": [
+                {"name": "recent_orders", "query": "SELECT * FROM orders WHERE order_date > '2023-01-01'"},
+                {"name": "totals", "query": {
+                    "query_type": "select",
+                    "table": "orders",
+                    "select": ["user_id", {"column": "SUM(total)", "alias": "total"}],
+                    "group_by": ["user_id"]
+                }}
+            ]
 
-        Returns:
-            None. The method modifies the builder attribute in-place.
+        Example generated SQL:
+            WITH "recent_orders" AS (
+                SELECT * FROM orders WHERE order_date > '2023-01-01'
+            ),
+            "totals" AS (
+                SELECT "user_id", SUM("total") AS "total"
+                FROM "orders"
+                GROUP BY "user_id"
+            )
 
-        Raises:
-            AttributeError: If the builder does not support CTEs (i.e., lacks a `with_cte` method).
-
-        Example:
-            Assuming `self.config` contains:
-            {
-                "ctes": [
-                    {"name": "temporary_data", "query": "SELECT * FROM my_table"},
-                    {"name": "filtered_data", "query": {"table": "temporary_data", "filter": "value > 10"}}
-                ]
-            }
-            and `self.builder` is an instance of a class with a `with_cte` method, calling `_apply_ctes()` will
-            configure the builder to include the specified CTEs.
+        Notes:
+            - Nested config dicts are transformed recursively with SQLGeneratorFromConfig.
+            - Aliases are quoted for safety.
+            - Duplicate CTE names are ignored.
+            - Multiple CTEs are comma-separated in the WITH clause.
         """
         ctes = self.config.get("ctes")
         if ctes and hasattr(self.builder, "with_cte"):
@@ -456,31 +548,36 @@ class SQLGeneratorFromConfig:
 
     def _apply_unions(self):
         """
-        Applies union operations to the current SQL query builder based on the configuration specified in `self.config`.
+        Applies UNION or UNION ALL operations from the configuration.
 
-        This method retrieves union configurations from `self.config` under the 'unions' key. Each union configuration
-        should specify a sub-query and may indicate whether it's a UNION ALL through the 'all' key. It constructs a
-        query using these configurations and applies them to the current builder object.
+        This method looks for a "unions" key in the config. Each entry must define:
+        - "query": either a raw SQL string or a nested config dict.
+        - "all" (optional): if True, uses UNION ALL instead of UNION.
 
-        Args:
-            None
+        Example config:
+            "unions": [
+                {
+                    "query": {
+                        "query_type": "select",
+                        "table": "employees",
+                        "select": ["id", "name"]
+                    },
+                    "all": True
+                },
+                {
+                    "query": "SELECT id, name FROM contractors"
+                }
+            ]
 
-        Returns:
-            None: This method does not return anything but modifies the builder in-place.
+        Example generated SQL:
+            SELECT "id", "name" FROM "employees"
+            UNION ALL (SELECT "id", "name" FROM "employees")
+            UNION (SELECT id, name FROM contractors)
 
-        Raises:
-            AttributeError: If the builder object does not support the 'union' method.
-
-        Example:
-            Assuming `self.config` contains:
-            {
-                "unions": [
-                    {"query": {"table": "employees", "fields": ["id", "name"]}, "all": true},
-                    {"query": {"table": "contractors", "fields": ["id", "name"]}}
-                ]
-            }
-            This would configure the builder to perform a UNION ALL with a query built from the first sub-config,
-            and a standard UNION with the second.
+        Notes:
+            - Nested config dicts are transformed recursively with SQLGeneratorFromConfig.
+            - The `all` flag defaults to False (regular UNION).
+            - Queries in the union must project the same number of columns with compatible types.
         """
         unions = self.config.get("unions")
         if unions and hasattr(self.builder, "union"):
@@ -495,27 +592,36 @@ class SQLGeneratorFromConfig:
 
     def _apply_intersects(self):
         """
-        Applies intersection operations to the builder based on the configuration provided.
+        Applies INTERSECT operations from the configuration.
 
-        This method retrieves intersection configurations from the `intersects` key in the instance's config attribute.
-        If intersections are defined, it dynamically constructs SQL queries using these configurations and applies
-        them to the builder's `intersect` method. Each intersection operation modifies the builder's state by intersecting
-        it with a dynamically generated SQL query.
+        This method looks for an "intersects" key in the config. Each entry must
+        define a "query", which can be either:
+        - A raw SQL string, or
+        - A nested config dict that will be transformed into a query.
 
-        Attributes:
-            None explicitly required as parameters, but the method operates on the instance's `config` and `builder` attributes.
+        Example config:
+            "intersects": [
+                {
+                    "query": {
+                        "query_type": "select",
+                        "table": "orders",
+                        "select": ["id"]
+                    }
+                },
+                {
+                    "query": "SELECT id FROM archived_orders"
+                }
+            ]
 
-        Returns:
-            None: This method modifies the builder in-place and does not return any value.
+        Example generated SQL:
+            SELECT "id" FROM "employees"
+            INTERSECT (SELECT "id" FROM "orders")
+            INTERSECT (SELECT id FROM archived_orders)
 
-        Raises:
-            AttributeError: If the `builder` attribute does not have an `intersect` method.
-
-        Example:
-            Assuming an instance `processor` of a class with this method, and it has appropriate `config` and `builder`
-            attributes set:
-            >>> processor._apply_intersects()
-            This would apply all configured intersection operations to the `builder`.
+        Notes:
+            - Nested config dicts are transformed recursively with SQLGeneratorFromConfig.
+            - INTERSECT returns only rows common to both queries.
+            - Queries must project the same number of columns with compatible types.
         """
         intersects = self.config.get("intersects")
         if intersects and hasattr(self.builder, "intersect"):
@@ -529,35 +635,38 @@ class SQLGeneratorFromConfig:
 
     def _apply_excepts(self):
         """
-        Applies exception queries to the main query builder based on configuration settings.
+        Applies EXCEPT operations from the configuration.
 
-        This method retrieves exception configurations from the instance's config attribute, constructs SQL queries
-        for each exception, and applies these queries to the main query builder using its `except_query` method. The
-        method assumes that the main query builder has an `except_query` method capable of integrating additional SQL
-        queries as exceptions.
+        This method looks for an "excepts" key in the config. Each entry must
+        define a "query", which can be either:
+        - A raw SQL string, or
+        - A nested config dict that will be transformed into a query.
 
-        Attributes:
-            None explicitly required as parameters, but the method operates on the instance's `config` and `builder`
-            attributes.
+        Example config:
+            "excepts": [
+                {
+                    "query": {
+                        "query_type": "select",
+                        "table": "employees",
+                        "select": ["id"]
+                    }
+                },
+                {
+                    "query": "SELECT id FROM terminated_employees"
+                }
+            ]
 
-        Returns:
-            None: This method modifies the builder in-place and does not return any value.
+        Example generated SQL:
+            SELECT "id" FROM "employees"
+            EXCEPT (SELECT id FROM terminated_employees)
 
-        Raises:
-            AttributeError: If the builder does not have an `except_query` method.
-            KeyError: If the configuration for any exception entry is incomplete or improperly formatted.
-
-        Example:
-            Assuming an instance `query_modifier` of a class with this method, and the instance has appropriate `config`
-            and `builder` attributes set:
-
-            >>> query_modifier.config = {
-            ... "excepts": [
-            ...    {"query": {"table": "restricted_data", "filter": "user_id = 1"}}]
-            ... }
-            >>> query_modifier.builder = SomeQueryBuilder()
-            >>> query_modifier._apply_excepts()
+        Notes:
+            - Nested config dicts are transformed recursively with SQLGeneratorFromConfig.
+            - EXCEPT removes rows returned by the subquery from the main query.
+            - Queries must project the same number of columns with compatible types.
+            - Behavior may vary slightly by database (e.g., EXCEPT vs MINUS in Oracle).
         """
+
         excepts = self.config.get("excepts")
         if excepts and hasattr(self.builder, "except_query"):
             for except_entry in excepts:
@@ -570,33 +679,36 @@ class SQLGeneratorFromConfig:
 
     def _apply_pivot(self):
         """
-        Applies a pivot transformation to the data using the builder's pivot method, based on the configuration
-        settings.
+        Applies a PIVOT operation from the configuration.
 
-        This method reads the pivot configuration from `self.config` and applies a pivot operation if the configuration
-        is present and valid. The pivot operation restructures the data by transforming values from one or more columns
-        into a new set of columns, aggregating data as specified.
+        Looks for a "pivot" key in the config. The entry must include:
+        - "column": the column whose unique values become new columns
+        - "values": list of values to pivot into columns
+        - "aggregate_function": aggregate to apply to each pivoted column
+        - "alias" (optional): alias for the pivoted result
 
-        No arguments are explicitly taken by this method as it operates directly on the instance's attributes.
+        Example config:
+            "pivot": {
+                "column": "month",
+                "values": ["Jan", "Feb", "Mar"],
+                "aggregate_function": "SUM",
+                "alias": "monthly_sales"
+            }
 
-        Returns:
-            None: This method does not return anything but modifies the builder's state.
+        Example generated SQL:
+            SELECT ...
+            FROM (
+                "sales"
+            ) PIVOT (
+                SUM("month") FOR "month" IN ('Jan', 'Feb', 'Mar')
+            ) AS "monthly_sales"
 
-        Raises:
-            AttributeError: If the 'pivot' configuration is set but the builder does not support the pivot operation.
-
-        Example:
-            Assuming `self.config` is set up with a valid pivot configuration and `self.builder` supports pivoting:
-            >>> self.config = {
-            ... "pivot": {
-            ...    "column": "date",
-            ...    "values": "sales",
-            ...    "aggregate_function": "sum",
-            ...    "alias": "daily_sales"
-            ... }
-            ... }
-            self._apply_pivot()
+        Notes:
+            - PIVOT replaces the base table in the FROM clause.
+            - Only works in databases that support PIVOT (e.g., SQL Server, Oracle).
+            - Use with caution if targeting multiple dialects.
         """
+
         pivot = self.config.get("pivot")
         if pivot and hasattr(self.builder, "pivot"):
             self.builder.pivot(
@@ -608,18 +720,34 @@ class SQLGeneratorFromConfig:
 
     def _apply_unpivot(self):
         """
-        Applies the unpivot transformation to the builder based on the configuration settings.
+        Applies an UNPIVOT operation from the configuration.
 
-        This method retrieves the unpivot configuration from the instance's config attribute and, if present, applies the
-        unpivot transformation using the builder's unpivot method. The transformation parameters such as value_column,
-        category_column, columns, and an optional alias are specified in the configuration.
+        Looks for an "unpivot" key in the config. The entry must include:
+        - "value_column": column to hold the unpivoted values
+        - "category_column": column to hold the original column names
+        - "columns": list of columns to unpivot
+        - "alias" (optional): alias for the unpivoted result
 
-        Raises:
-            AttributeError: If the builder object does not have an 'unpivot' method.
+        Example config:
+            "unpivot": {
+                "value_column": "sales",
+                "category_column": "month",
+                "columns": ["Jan", "Feb", "Mar"],
+                "alias": "unpivoted_sales"
+            }
 
-        Example:
-            Assuming the instance has a valid builder and config attribute set:
-            instance._apply_unpivot()
+        Example generated SQL:
+            SELECT ...
+            FROM (
+                "sales"
+            ) UNPIVOT (
+                "sales" FOR "month" IN ("Jan", "Feb", "Mar")
+            ) AS "unpivoted_sales"
+
+        Notes:
+            - UNPIVOT replaces the base table in the FROM clause.
+            - Converts wide tables into long (tall) format.
+            - Use with caution across dialects (only supported in SQL Server, Oracle).
         """
         unpivot = self.config.get("unpivot")
         if unpivot and hasattr(self.builder, "unpivot"):
@@ -632,19 +760,46 @@ class SQLGeneratorFromConfig:
 
     def _apply_window_functions(self):
         """
-        Applies configured window functions to a query builder based on the instance's configuration.
+        Applies window functions from the configuration.
 
-        This method retrieves a list of window functions from the instance's configuration and applies each
-        one to the query builder if the builder supports window functions. Each window function can specify
-        the column to operate on, the function to apply, and optional partitioning and ordering criteria.
+        Looks for a "window_functions" key in the config. Each entry must include:
+        - "function": the window function name (e.g., ROW_NUMBER, RANK, SUM)
+        - "alias": the alias for the computed column
+        - "column" (optional): column argument for the function
+            * None → functions with no args (e.g., ROW_NUMBER)
+            * "*" → COUNT(*)
+            * str → SUM("salary"), AVG("score"), etc.
+        - "partition_by" (optional): list of columns for PARTITION BY
+        - "order_by" (optional): list of dicts for ORDER BY, each dict may include:
+            - "column": column name
+            - "order": "ASC" or "DESC"
+            - "nulls": "FIRST" or "LAST"
 
-        Raises:
-            AttributeError: If the builder does not support window functions but window functions are configured.
+        Example config:
+            "window_functions": [
+                {
+                    "function": "ROW_NUMBER",
+                    "alias": "row_num",
+                    "order_by": [{"column": "id"}]
+                },
+                {
+                    "function": "SUM",
+                    "column": "salary",
+                    "alias": "total_salary",
+                    "partition_by": ["department_id"]
+                }
+            ]
 
-        Example:
-            Assuming `self.builder` is an instance of a query builder that supports window functions and
-            `self.config` contains appropriate window function configurations, this method will configure
-            the builder with those window functions.
+        Example generated SQL:
+            SELECT ...,
+                ROW_NUMBER() OVER (ORDER BY "id" ASC) AS "row_num",
+                SUM("salary") OVER (PARTITION BY "department_id") AS "total_salary"
+            FROM "employees"
+
+        Notes:
+            - Multiple window functions can be added in one config.
+            - Each is added as a separate column in the SELECT clause.
+            - Useful for ranking, running totals, moving averages, etc.
         """
         window_functions = self.config.get("window_functions")
         if window_functions and hasattr(self.builder, "with_window_function"):
