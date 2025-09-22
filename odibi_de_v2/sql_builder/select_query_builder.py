@@ -86,7 +86,8 @@ class SelectQueryBuilder(BaseQueryBuilder):
             level="INFO"
         )
         SQLUtils.validate_table_name(table_name)
-        self.table_name = table_name
+        self.quote_style = quote_style
+        self.table_name = self._quote_table_with_alias(table_name)
         self.raw_columns = []
         self.columns = []
         self.raw_expressions = []
@@ -101,8 +102,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
         self.distinct_on_columns = []
         self.set_operations = []
         self.schema = []
-        self.ctes = []  # Common Table Expressions
-        self.quote_style = quote_style
+        self.ctes = []
         log_and_optionally_raise(
             module="SQL_BUILDER",
             component="SelectQueryBuilder",
@@ -165,7 +165,31 @@ class SelectQueryBuilder(BaseQueryBuilder):
         # Output:
         # SELECT id, name FROM "employees" WHERE status = 'active'
     """
+    def _quote_table_with_alias(self, table_name: str) -> str:
+            """
+            Safely quote schema-qualified table names and handle aliases.
+            Supports multi-word table names (e.g., 'kids products kp').
 
+            Rules:
+                - If one token → just a table name.
+                - If two tokens → first = table, second = alias.
+                - If more than two tokens → last = alias, everything before = table.
+            """
+            parts = table_name.split()
+            if len(parts) == 1:
+                ident, alias = parts[0], None
+            elif len(parts) == 2:
+                ident, alias = parts[0], parts[1]
+            else:
+                ident = " ".join(parts[:-1])
+                alias = parts[-1]
+            # Quote schema-qualified identifiers
+            if "." in ident:
+                dotted = ".".join(SQLUtils.quote_column(p, self.quote_style) for p in ident.split("."))
+            else:
+                dotted = SQLUtils.quote_column(ident, self.quote_style)
+
+            return f"{dotted} {alias}" if alias else dotted
     @log_call(module="SQL_BUILDER", component="SelectQueryBuilder")
     @enforce_types()
     @log_exceptions(
@@ -278,54 +302,60 @@ class SelectQueryBuilder(BaseQueryBuilder):
     def select(
         self,
         columns: Optional[List[Union[str, dict, tuple]]] = None
-    ) -> 'SelectQueryBuilder':
+    ) -> "SelectQueryBuilder":
         """
-    Add columns to the SELECT clause of the query.
+        Add columns to the SELECT clause of the query.
 
-    This method allows you to specify the columns to include in the SELECT
-    clause. It supports basic column selection, aliasing, and nested
-    expressions for advanced queries. If no columns are specified, a wildcard
-    (`*`) is used to select all columns.
+        This method allows you to specify the columns to include in the SELECT
+        clause. It supports basic column selection, aliasing, and raw SQL
+        expressions for advanced queries. If no columns are specified, a wildcard
+        (`*`) is used to select all columns.
 
-    Args:
-        columns (Optional[List[Union[str, dict, tuple]]]): A list of columns
-        to include in the SELECT clause.
-        Supported formats:
-            - `str`: A single column name (e.g., "id").
-            - `dict`: A dictionary specifying a column with an alias
-                (e.g., {"column": "id", "alias": "employee_id"}).
-            - `tuple`: A tuple for aliasing (e.g., ("id", "employee_id")).
-            - If `None`, selects all columns using `*`.
+        Args:
+            columns (Optional[List[Union[str, dict, tuple]]]): A list of columns
+                to include in the SELECT clause.
+                Supported formats:
+                    - `str`: A column name or raw SQL expression
+                        (e.g., "id", "SUM(salary)").
+                    - `dict`: {"column": str, "alias": str} for aliasing
+                        (e.g., {"column": "id", "alias": "employee_id"}).
+                    - `tuple`: (column, alias) shorthand for aliasing
+                        (e.g., ("id", "employee_id")).
+                    - If `None`, selects all columns using `*`.
 
-    Returns:
-        SelectQueryBuilder: The updated query builder instance.
+        Returns:
+            SelectQueryBuilder: The updated query builder instance.
 
-    Raises:
-        ValueError: If a column specification is invalid or does not match
-        the schema (if schema validation is enabled).
+        Raises:
+            ValueError: If a column specification is invalid or does not match
+            the schema (if schema validation is enabled).
 
-    Examples:
-        # Basic column selection
-        builder.select(["id", "name", "email"])
+        Examples:
+            # Basic column selection
+            builder.select(["id", "name", "email"])
 
-        # Aliased columns using dictionaries
-        builder.select(
-            [{"column": "id", "alias": "employee_id"},
-            {"column": "name", "alias": "full_name"}])
+            # Aliased columns using dictionaries
+            builder.select([
+                {"column": "id", "alias": "employee_id"},
+                {"column": "name", "alias": "full_name"}
+            ])
 
+            # Aliased columns using tuples
+            builder.select([("id", "employee_id"), ("name", "full_name")])
 
-        # Aliased columns using tuples
-        builder.select([("id", "employee_id"), ("name", "full_name")])
+            # Raw SQL expressions
+            builder.select(["SUM(salary)", {"column": "COUNT(*)", "alias": "emp_count"}])
 
-        # Select all columns
-        builder.select()
+            # Select all columns
+            builder.select()
 
-    Notes:
-        - If a schema is set using `set_schema`, the columns are validated
-            against the schema to ensure correctness.
-        - The method supports mixing different column specifications
-            (e.g., `str` and `dict` in the same call).
-    """
+        Notes:
+            - If a schema is set using `set_schema`, plain identifiers are validated
+            against the schema.
+            - Plain identifiers are quoted automatically; raw SQL expressions are
+            left untouched.
+            - Supports mixing formats (str, dict, tuple) in the same call.
+        """
         log_and_optionally_raise(
             module="SQL_BUILDER",
             component="SelectQueryBuilder",
@@ -334,37 +364,68 @@ class SelectQueryBuilder(BaseQueryBuilder):
             message=f"Adding SELECT columns: {columns}",
             level="INFO"
         )
+
         if not columns:
             self.raw_columns = ["*"]
             self.columns = ["*"]
         else:
+            # Track raw column names for validation
             self.raw_columns = [
                 col["column"] if isinstance(col, dict) else
                 col[0] if isinstance(col, tuple) else col
                 for col in columns
             ]
+
+            # Schema validation (only plain identifiers)
             if self.schema:
-                SQLUtils.validate_column_names(
-                    [col.split("(")[-1].split(")")[0].strip()
-                        for col in self.raw_columns if isinstance(col, str)],
-                    self.schema
-                )
+                identifiers = [
+                    c for c in self.raw_columns
+                    if isinstance(c, str) and c.isidentifier()
+                ]
+                SQLUtils.validate_column_names(identifiers, self.schema)
+
+            # Build formatted columns
             formatted = []
             for col in columns:
                 if isinstance(col, dict):
-                    formatted.append(
-                        f"{col['column']} AS "
-                        f"{SQLUtils.quote_column(col['alias'],self.quote_style)}"
+                    base = col["column"]
+                    alias = col.get("alias")
+                    base_expr = (
+                        SQLUtils.quote_column(base, self.quote_style)
+                        if base.isidentifier() or "." in base
+                        else base
+                    )
+                    if alias:
+                        formatted.append(
+                            f"{base_expr} AS {SQLUtils.quote_column(alias, self.quote_style)}"
                         )
-                elif isinstance(col, tuple):
+                    else:
+                        formatted.append(base_expr)
+
+                elif isinstance(col, tuple) and len(col) == 2:
+                    base, alias = col
+                    base_expr = (
+                        SQLUtils.quote_column(base, self.quote_style)
+                        if base.isidentifier() or "." in base
+                        else base
+                    )
                     formatted.append(
-                        f"{col[0]} AS "
-                        f"{SQLUtils.quote_column(col[1], self.quote_style)}")
-                    self.raw_columns.append(col[1])
+                        f"{base_expr} AS {SQLUtils.quote_column(alias, self.quote_style)}"
+                    )
+                    self.raw_columns.append(alias)
+
+                elif isinstance(col, str):
+                    # Quote plain identifiers, keep raw expressions untouched
+                    if col.isidentifier() or "." in col:
+                        formatted.append(SQLUtils.quote_column(col, self.quote_style))
+                    else:
+                        formatted.append(col)
+
                 else:
-                    formatted.append(
-                        SQLUtils.quote_column(col, self.quote_style))
+                    raise ValueError(f"Invalid column format: {col}")
+
             self.columns = formatted
+
         log_and_optionally_raise(
             module="SQL_BUILDER",
             component="SelectQueryBuilder",
@@ -374,6 +435,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
             level="INFO"
         )
         return self
+
     @log_call(module="SQL_BUILDER", component="SelectQueryBuilder")
     @enforce_types()
     @log_exceptions(
@@ -388,72 +450,76 @@ class SelectQueryBuilder(BaseQueryBuilder):
         alias: Optional[str] = None
     ) -> 'SelectQueryBuilder':
         """
-    Add an aggregate function to the SELECT clause.
+        Add an aggregate function to the SELECT clause.
 
-    This method allows you to include aggregate functions such as
-    `SUM`, `COUNT`, or `AVG` in the SELECT clause. You can optionally
-    provide an alias for the aggregate result.
+        This method allows you to include aggregate functions such as
+        `SUM`, `COUNT`, or `AVG` in the SELECT clause. You can optionally
+        provide an alias for the aggregate result.
 
-    Args:
-        function (str): The aggregate function to apply
-            (e.g., "SUM", "COUNT", "AVG").
-        column (str): The column to aggregate. This can be a raw column name or a
-            valid expression.
-        alias (Optional[str], optional): An alias for the aggregate result.
-            Defaults to None.
+        Args:
+            function (str): The aggregate function to apply
+                (e.g., "SUM", "COUNT", "AVG").
+            column (str): The column to aggregate. This can be a raw column name,
+                a valid expression, or '*' for all rows.
+            alias (Optional[str], optional): An alias for the aggregate result.
+                Defaults to None.
 
-    Returns:
-        SelectQueryBuilder: The updated query builder instance.
+        Returns:
+            SelectQueryBuilder: The updated query builder instance.
 
-    Raises:
-        ValueError: If `function` or `column` is not provided.
+        Raises:
+            ValueError: If `function` or `column` is not provided.
 
-    Examples:
-        # Add a SUM aggregate
-        builder.add_aggregate("SUM", "salary", "total_salary")
+        Examples:
+            # Add a SUM aggregate
+            builder.add_aggregate("SUM", "salary", "total_salary")
 
-        # Add a COUNT aggregate
-        builder.add_aggregate("COUNT", "id", "employee_count")
+            # Add a COUNT aggregate
+            builder.add_aggregate("COUNT", "id", "employee_count")
 
-        # Combine multiple aggregates
-        builder.add_aggregate("SUM", "salary", "total_salary"
-        ).add_aggregate("COUNT", "*", "total_employees")
+            # Combine multiple aggregates
+            builder.add_aggregate("SUM", "salary", "total_salary"
+            ).add_aggregate("COUNT", "*", "total_employees")
 
+        Notes:
+            - The column name is quoted using `SQLUtils.quote_column` to handle
+            reserved keywords or special characters.
+            - If `alias` is not provided, the aggregate will appear without an
+            alias in the SELECT clause.
+            - Special case: `COUNT(*)` and similar functions are supported directly
+            without quoting the asterisk.
+        """
+        if not function or column is None:
+            raise ValueError("Function and column are required for aggregates.")
 
-    Notes:
-        - The column name is quoted using `SQLUtils.quote_column` to handle
-        reserved keywords or special characters.
-        - If `alias` is not provided, the aggregate will appear without an
-        alias in the SELECT clause.
-    """
-        if not function or not column:
-            raise ValueError(
-                "Function and column are required for aggregates.")
-
-        # Quote the column
-        if self.quote_style == '"':
-            quoted_column = f'"{column}"'
-        elif self.quote_style == "[":
-            quoted_column = f"[{column}]"
-        log_and_optionally_raise(
-            module="SQL_BUILDER",
-            component="SelectQueryBuilder",
-            method="add_aggregate",
-            error_type=ErrorType.NO_ERROR,
-            message=f"Quoted column: {column} -> {quoted_column}",
-            level="DEBUG"
-        )
+        # Handle COUNT(*) and similar
+        if column == "*":
+            agg_col = "*"
+            log_and_optionally_raise(
+                module="SQL_BUILDER",
+                component="SelectQueryBuilder",
+                method="add_aggregate",
+                error_type=ErrorType.NO_ERROR,
+                message="Aggregate column is '*', no quoting applied.",
+                level="DEBUG"
+            )
+        else:
+            agg_col = SQLUtils.quote_column(column, self.quote_style)
+            log_and_optionally_raise(
+                module="SQL_BUILDER",
+                component="SelectQueryBuilder",
+                method="add_aggregate",
+                error_type=ErrorType.NO_ERROR,
+                message=f"Quoted column: {column} -> {agg_col}",
+                level="DEBUG"
+            )
 
         # Build the aggregate expression
-        aggregate_expression = f"{function}({quoted_column})"
+        aggregate_expression = f"{function}({agg_col})"
 
-        # Quote alias directly if provided
+        # Quote alias if provided
         if alias:
-            # Use double quotes for aliases
-            if self.quote_style == '"':
-                quoted_alias = f'"{alias}"'
-            elif self.quote_style == "[":
-                quoted_alias = f"[{alias}]"
+            quoted_alias = SQLUtils.quote_column(alias, self.quote_style)
             aggregate_expression += f" AS {quoted_alias}"
             log_and_optionally_raise(
                 module="SQL_BUILDER",
@@ -484,6 +550,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
                 message=f"Aggregate already exists, skipping: {aggregate_expression}",
                 level="INFO"
             )
+
         return self
     @log_call(module="SQL_BUILDER", component="SelectQueryBuilder")
     @enforce_types()
@@ -683,6 +750,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
             level="INFO"
         )
         return self
+
     @log_call(module="SQL_BUILDER", component="SelectQueryBuilder")
     @enforce_types()
     @log_exceptions(
@@ -694,77 +762,84 @@ class SelectQueryBuilder(BaseQueryBuilder):
         self,
         table: str,
         condition: Union[str, List[Union[str, tuple]]],
-        join_type: str = "LEFT"
+        join_type: str = "LEFT",
+        auto_quote: bool = False
     ) -> 'SelectQueryBuilder':
         """
-    Add a JOIN clause to the query.
+        Add a JOIN clause to the query.
 
-    This method allows you to specify JOIN operations to combine data from
-    multiple tables. It supports INNER, LEFT, RIGHT, and FULL OUTER JOIN types
-    and allows for complex join conditions.
+        This method allows you to specify JOIN operations to combine data from
+        multiple tables. It supports INNER, LEFT, RIGHT, and FULL OUTER JOIN types,
+        and allows for complex join conditions.
 
-    Args:
-        table (str): The name of the table to join with. This can include
-        aliases (e.g., "users u").
-        condition (Union[str, List[Union[str, tuple]]]): The join condition.
-        Supported formats:
-            - `str`: A simple join condition
-                (e.g., "users.id = orders.user_id").
-            - `List[str]`: A list of AND-ed conditions
-                (e.g., ["t1.id = t2.id", "t1.status = 'active'"]).
-            - `List[tuple]`: A nested condition structure for complex logic.
-                Example:
-                    [("t1.id = t2.id", "AND", "t1.status = 'active'")].
-        join_type (str, optional): The type of JOIN operation.
-            Defaults to "INNER".
-            Supported types:
-                - "INNER"
-                - "LEFT"
-                - "RIGHT"
-                - "FULL OUTER"
+        Args:
+            table (str): The name of the table to join with. This can include
+                aliases (e.g., "users u").
+            condition (Union[str, List[Union[str, tuple]]]): The join condition(s).
+                Supported formats:
+                    - `str`: A simple join condition
+                        (e.g., "users.id = orders.user_id").
+                    - `List[str]`: A list of AND-ed conditions
+                        (e.g., ["t1.id = t2.id", "t1.status = 'active'"]).
+                    - `List[tuple]`: A nested condition structure for complex logic.
+                        Example:
+                            [("t1.id = t2.id", "AND", "t1.status = 'active'")].
+            join_type (str, optional): The type of JOIN operation. Defaults to "LEFT".
+                Supported types:
+                    - "INNER"
+                    - "LEFT"
+                    - "RIGHT"
+                    - "FULL OUTER"
+            auto_quote (bool, optional): If True, automatically quote identifiers
+                inside the join condition (e.g., "users.id" → "\"users\".\"id\"").
+                Defaults to False (raw passthrough).
 
-    Returns:
-        SelectQueryBuilder: The updated query builder instance.
+        Returns:
+            SelectQueryBuilder: The updated query builder instance.
 
-    Raises:
-        ValueError: If the `join_type` is invalid or the `condition` is
-            not properly formatted.
+        Raises:
+            ValueError: If the `join_type` is invalid or the `condition` is
+                not properly formatted.
 
-    Examples:
-        # Simple INNER JOIN
-        builder.join("users", "orders.user_id = users.id")
+        Examples:
+            # Simple INNER JOIN (raw conditions)
+            builder.join("users", "orders.user_id = users.id", join_type="INNER")
 
-        # LEFT JOIN with multiple conditions
-        builder.join(
-            "products", [
-                "orders.product_id = products.id",
-                "products.active = 1"],
-            join_type="LEFT")
+            # LEFT JOIN with multiple conditions
+            builder.join(
+                "products",
+                ["orders.product_id = products.id", "products.active = 1"],
+                join_type="LEFT"
+            )
 
-        # Complex condition using a nested structure
-        builder.join(
-            "transactions",
-            [("t1.id = t2.id", "AND", "t1.status = 'active'")],
-            join_type="RIGHT"
-        )
+            # Complex condition using a nested structure
+            builder.join(
+                "transactions",
+                [("t1.id = t2.id", "AND", "t1.status = 'active'")],
+                join_type="RIGHT"
+            )
 
-    Notes:
-        - The `condition` argument is parsed using `SQLUtils.parse_conditions`
-            , which supports complex nested logic.
-        - Ensure that the `table` name is properly quoted if it contains
-            special characters or reserved keywords.
-    """
+            # Auto-quoted identifiers
+            builder.join("orders o", "users.id = o.user_id", auto_quote=True)
+            # Produces: LEFT JOIN "orders" o ON "users"."id" = "o"."user_id"
+
+        Notes:
+            - The `condition` argument is parsed using `SQLUtils.parse_conditions`,
+            which supports nested logic and optional auto-quoting.
+            - The `table` argument is quoted and may include schema and/or alias.
+        """
         log_and_optionally_raise(
             module="SQL_BUILDER",
             component="SelectQueryBuilder",
             method="join",
             error_type=ErrorType.NO_ERROR,
-            message=f"Adding JOIN: {table}, Condition: {condition}, Type: {join_type}",
+            message=f"Adding JOIN: {table}, Condition: {condition}, Type: {join_type}, AutoQuote: {auto_quote}",
             level="INFO"
         )
-        parsed_condition = SQLUtils.parse_conditions(condition)
-        join_clause = (
-            f"{join_type.upper()} JOIN {SQLUtils.quote_column(table, self.quote_style)} ON {parsed_condition}")
+
+        parsed_condition = SQLUtils.parse_conditions(condition, self.quote_style, auto_quote=auto_quote)
+        join_clause = f"{join_type.upper()} JOIN {self._quote_table_with_alias(table)} ON {parsed_condition}"
+
         # Avoid duplicate JOINs
         if join_clause not in self.joins:
             self.joins.append(join_clause)
@@ -776,14 +851,10 @@ class SelectQueryBuilder(BaseQueryBuilder):
                 message=f"JOIN clauses: {self.joins}",
                 level="INFO"
             )
+
         return self
-    @log_call(module="SQL_BUILDER", component="SelectQueryBuilder")
-    @enforce_types()
-    @log_exceptions(
-        module="SQL_BUILDER",
-        component="SelectQueryBuilder",
-        error_type=ErrorType.Runtime_Error,
-        raise_type=RuntimeError)
+
+
     def having(
         self,
         condition: str,
@@ -1381,8 +1452,8 @@ class SelectQueryBuilder(BaseQueryBuilder):
             message=f"Adding DISTINCT ON columns: {columns}",
             level="INFO"
         )
-        if not columns:
-            raise ValueError("DISTINCT ON requires at least one column.")
+        if not columns or not all(isinstance(col, str) for col in columns):
+            raise ValueError("DISTINCT ON requires a non-empty list of string column names.")
         self.distinct_on_columns = SQLUtils.format_columns(
             columns, self.quote_style)
         log_and_optionally_raise(
@@ -1390,7 +1461,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
             component="SelectQueryBuilder",
             method="distinct_on",
             error_type=ErrorType.NO_ERROR,
-            message=f"Formatted DISTINCT ON columns: {distinct_on_columns}",
+            message=f"Formatted DISTINCT ON columns: {self.distinct_on_columns}",
             level="INFO"
         )
         return self
@@ -1566,7 +1637,6 @@ class SelectQueryBuilder(BaseQueryBuilder):
             self.ctes.append(cte_string)
 
         return self
-
     @log_call(module="SQL_BUILDER", component="SelectQueryBuilder")
     @enforce_types()
     @log_exceptions(
@@ -1576,148 +1646,116 @@ class SelectQueryBuilder(BaseQueryBuilder):
         raise_type=RuntimeError)
     def with_window_function(
         self,
-        column: str,
+        column: Optional[str],
         function: str,
+        alias: str,   # <-- moved up
         partition_by: Optional[List[str]] = None,
         order_by: Optional[List[Union[str, dict]]] = None,
-        alias: Optional[str] = None
     ) -> "SelectQueryBuilder":
         """
-    Add a window function to the SELECT clause.
+        Add a window function to the SELECT clause.
 
-    This method allows you to apply analytic functions (e.g., ROW_NUMBER,
-    RANK, SUM) over a specified window of rows. It supports partitioning and
-    ordering to define the scope of the window and allows advanced ordering
-    options like null handling.
+        This method allows you to apply analytic functions (e.g., ROW_NUMBER,
+        RANK, SUM) over a specified window of rows. It supports partitioning and
+        ordering to define the scope of the window and allows advanced ordering
+        options like null handling.
 
-    Args:
-        column (str): The column to apply the window function to. For
-            functions like ROW_NUMBER, this can be left empty or use a
-            placeholder.
-        function (str): The window function to apply (e.g., "ROW_NUMBER",
-        "RANK", "SUM").
-        partition_by (Optional[List[str]], optional): A list of columns to
-            partition the data. Defaults to None.
-        order_by (Optional[List[Union[str, dict]]], optional): A list of
-        columns or dictionaries specifying ordering within each partition.
-        Supported formats:
-            - `str`: A column name (default order: ASC).
-            - `dict`: A dictionary specifying the column, order, and optional
-                null handling:
-                - `column` (str): The column name.
-                - `order` (str): Order direction, "ASC" (default) or "DESC".
-                - `nulls` (str, optional): Null handling, "FIRST" or "LAST".
-            Defaults to None.
-        alias (Optional[str], optional): An alias for the window function
-        result. Defaults to None.
+        Args:
+            column (Optional[str]): The column to apply the window function to.
+                - None for functions with no argument (e.g., ROW_NUMBER()).
+                - "*" for COUNT(*).
+                - A column name for functions like SUM, AVG, RANK, etc.
+            function (str): The window function to apply (e.g., "ROW_NUMBER",
+                "RANK", "SUM").
+            alias (str): An alias for the window function result.
+            partition_by (Optional[List[str]], optional): A list of columns to
+                partition the data. Defaults to None.
+            order_by (Optional[List[Union[str, dict]]], optional): A list of
+                columns or dictionaries specifying ordering within each partition.
+                Supported formats:
+                    - `str`: A column name (default order: ASC).
+                    - `dict`: {"column": str, "order": "ASC|DESC", "nulls": "FIRST|LAST"}.
+                Defaults to None.
 
-    Returns:
-        SelectQueryBuilder: The updated query builder instance.
+        Returns:
+            SelectQueryBuilder: The updated query builder instance.
 
-    Raises:
-        ValueError: If the `function` or `alias` is missing, or if `order_by`
-        has an invalid format.
+        Raises:
+            ValueError: If `function` or `alias` is missing, or if `order_by`
+            has an invalid format.
 
-    Examples:
-        # ROW_NUMBER() window function with PARTITION BY
-        builder.with_window_function(
-            column="",
-            function="ROW_NUMBER",
-            partition_by=["department_id"],
-            alias="row_num"
-        )
-        # SELECT ..., ROW_NUMBER() OVER (PARTITION BY department_id) AS row_num
+        Examples:
+            # ROW_NUMBER() window function with ORDER BY
+            builder.with_window_function(
+                column=None,
+                function="ROW_NUMBER",
+                alias="row_num",
+                order_by=[{"column": "id"}]
+            )
+            # SELECT ..., ROW_NUMBER() OVER (ORDER BY "id" ASC) AS "row_num"
 
-        # SUM() window function with PARTITION BY and ORDER BY
-        builder.with_window_function(
-            column="salary",
-            function="SUM",
-            partition_by=["department_id"],
-            order_by=[{"column": "hire_date", "order": "ASC"}],
-            alias="total_salary"
-        )
+            # SUM() window function with PARTITION BY
+            builder.with_window_function(
+                column="salary",
+                function="SUM",
+                alias="total_salary",
+                partition_by=["department_id"]
+            )
+            # SELECT ..., SUM("salary") OVER (PARTITION BY "department_id") AS "total_salary"
 
-        # Advanced ORDER BY with null handling
-        builder.with_window_function(
-            column="salary"
-            function="RANK",
-            partition_by=["department_id"],
-            order_by=[
-                {"column": "hire_date", "order": "ASC", "nulls": "LAST"},
-                {"column": "salary", "order": "DESC"}
-            ],
-            alias="rank"
-        )
-    Notes:
-        - If `partition_by` is provided, the `PARTITION BY` clause is included
-            in the window.
-        - If `order_by` is provided, the `ORDER BY` clause can include
-            additional options like null handling.
-        - The alias is mandatory for readability and must be valid SQL syntax.
-        - This method adds the window function result to the SELECT clause,
-            alongside other columns.
-    """
+            # RANK with advanced ORDER BY
+            builder.with_window_function(
+                column="salary",
+                function="RANK",
+                alias="rank",
+                partition_by=["department_id"],
+                order_by=[{"column": "hire_date", "order": "ASC", "nulls": "LAST"}]
+            )
+            # SELECT ..., RANK("salary") OVER (PARTITION BY "department_id" ORDER BY "hire_date" ASC NULLS LAST) AS "rank"
+
+        Notes:
+            - If `partition_by` is provided, the PARTITION BY clause is included.
+            - If `order_by` is provided, the ORDER BY clause can include null handling.
+            - The alias is mandatory for readability and must be valid SQL syntax.
+        """
         if not function:
             raise ValueError("Function is required for window functions.")
         if not alias:
-            raise ValueError("Alias is required for window function results.")
+            raise ValueError("Alias is required for window functions.")
 
-        # Build PARTITION BY clause
-        partition_clause = ""
+        # Handle column argument
+        if column is None:
+            arg = ""   # e.g., ROW_NUMBER()
+        elif column == "*":
+            arg = "*"  # e.g., COUNT(*)
+        else:
+            arg = SQLUtils.quote_column(column, self.quote_style)
+
+        # Build PARTITION BY
+        part_clause = ""
         if partition_by:
-            partition_clause = f"PARTITION BY {', '.join(SQLUtils.quote_column(col, self.quote_style) for col in partition_by)}"
+            quoted_parts = [SQLUtils.quote_column(c, self.quote_style) for c in partition_by]
+            part_clause = f"PARTITION BY {', '.join(quoted_parts)}"
 
-        # Build ORDER BY clause with extended support
+        # Build ORDER BY
         order_clause = ""
         if order_by:
-            formatted_order_by = []
-            for entry in order_by:
-                if isinstance(entry, dict):
-                    column = SQLUtils.quote_column(
-                        entry["column"], self.quote_style)
-                    order = entry.get("order", "ASC").upper()
-                    if order not in {"ASC", "DESC"}:
-                        raise ValueError(
-                            f"Invalid order '{order}'. Use 'ASC' or 'DESC'.")
-                    nulls = entry.get("nulls")
-                    nulls_clause = f" NULLS {nulls.upper()}" if nulls else ""
-                    formatted_order_by.append(
-                        f"{column} {order}{nulls_clause}")
-                elif isinstance(entry, str):
-                    formatted_order_by.append(
-                        f"{SQLUtils.quote_column(entry, self.quote_style)} ASC"
-                        )
-                else:
-                    raise ValueError(
-                        "Invalid order_by entry. Must be a dictionary " +
-                        "or string.")
-            order_clause = f"ORDER BY {', '.join(formatted_order_by)}"
+            order_clause = SQLUtils.build_order_by_clause(order_by, self.quote_style)
+            order_clause = order_clause.replace("ORDER BY ", "ORDER BY ")
 
-        # Combine window function clauses
-        over_clause = f"OVER ({partition_clause} {order_clause})".strip()
-        window_expression = f"{function}({SQLUtils.quote_column(column, self.quote_style)}) {over_clause}"
-        if alias:
-            window_expression += f" AS {SQLUtils.quote_column(alias, self.quote_style)}"
-        if window_expression not in self.columns:
-            self.columns.append(window_expression)
-            log_and_optionally_raise(
-                module="SQL_BUILDER",
-                component="SelectQueryBuilder",
-                method="with_window_function",
-                error_type=ErrorType.NO_ERROR,
-                message=f"Added window function: {window_expression}",
-                level="INFO"
-            )
-        else:
-            log_and_optionally_raise(
-                module="SQL_BUILDER",
-                component="SelectQueryBuilder",
-                method="with_window_function",
-                error_type=ErrorType.NO_ERROR,
-                message=f"Window function already exists: {window_expression}",
-                level="INFO"
-            )
+        # Build OVER clause
+        over_parts = [p for p in [part_clause, order_clause] if p]
+        over_clause = f"OVER ({' '.join(over_parts)})" if over_parts else "OVER ()"
+
+        # Build final expression
+        func_call = f"{function}({arg})" if arg else f"{function}()"
+        expr = f"{func_call} {over_clause} AS {SQLUtils.quote_column(alias, self.quote_style)}"
+
+        if expr not in self.columns:
+            self.columns.append(expr)
+
         return self
+
 
     def get_parameters(self) -> List:
         """
