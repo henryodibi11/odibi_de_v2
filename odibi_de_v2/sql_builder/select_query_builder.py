@@ -76,7 +76,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
         component="SelectQueryBuilder",
         error_type=ErrorType.Runtime_Error,
         raise_type=RuntimeError)
-    def __init__(self, table_name: str, quote_style: str = '`'):
+    def __init__(self, table_name: Optional[str] = None, quote_style: str = '`'):
         log_and_optionally_raise(
             module="SQL_BUILDER",
             component="SelectQueryBuilder",
@@ -85,9 +85,12 @@ class SelectQueryBuilder(BaseQueryBuilder):
             message=f"Initializing SelectQueryBuilder for table: {table_name}",
             level="INFO"
         )
-        SQLUtils.validate_table_name(table_name)
         self.quote_style = quote_style
-        self.table_name = self._quote_table_with_alias(table_name)
+        if table_name:
+            SQLUtils.validate_table_name(table_name)
+            self.table_name = self._quote_table_with_alias(table_name)
+        else:
+            self.table_name = None
         self.raw_columns = []
         self.columns = []
         self.raw_expressions = []
@@ -1950,7 +1953,10 @@ class SelectQueryBuilder(BaseQueryBuilder):
             distinct_clause = "DISTINCT "
 
         # Build SELECT clause with all columns
-        query = f"{cte_clause}SELECT {distinct_clause}{', '.join(self.columns)} FROM {self.table_name}"
+        if self.table_name:
+            query = f"{cte_clause}SELECT {distinct_clause}{', '.join(self.columns)} FROM {self.table_name}"
+        else:
+            query = f"{cte_clause}SELECT {distinct_clause}{', '.join(self.columns)}"
 
         # Add JOIN clauses
         if self.joins:
