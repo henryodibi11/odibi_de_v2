@@ -322,8 +322,14 @@ class SQLGeneratorFromConfig:
                 table = join.get("table")
                 condition = join.get("condition")
                 join_type = join.get("type", "INNER")
-                if table and condition:
-                    self.builder.join(table, condition, join_type)
+                if table:
+                    if join_type.upper() == "CROSS" and not condition:
+                        # Allow CROSS JOIN with no condition
+                        self.builder.join(table, None, join_type)
+                    elif condition:
+                        # Normal join with condition
+                        self.builder.join(table, condition, join_type)
+
 
     def _apply_where(self):
         """
