@@ -115,11 +115,5 @@ class SQLQueryProvider:
             <class 'SelectQueryBuilder'>
         """
         table = self.config.get("table")
-        if not table:
-            raise ValueError("Config must include a 'table' key for SELECT queries.")
         builder = SelectQueryBuilder(table,self.quote_style)
-
-        # Note: we intentionally do NOT apply select/joins/etc here
-        # SQLTransformerFromConfig will orchestrate the builder
-
         return builder
