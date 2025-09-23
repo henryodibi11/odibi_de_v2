@@ -292,6 +292,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
     """
         self.schema = schema
         return self
+
     @log_call(module="SQL_BUILDER", component="SelectQueryBuilder")
     @enforce_types()
     @log_exceptions(
@@ -307,54 +308,101 @@ class SelectQueryBuilder(BaseQueryBuilder):
         Add columns to the SELECT clause of the query.
 
         This method allows you to specify the columns to include in the SELECT
-        clause. It supports basic column selection, aliasing, and raw SQL
-        expressions for advanced queries. If no columns are specified, a wildcard
+        clause. It supports plain identifiers, aliasing, aggregates, and CASE
+        WHEN logic for advanced queries. If no columns are specified, a wildcard
         (`*`) is used to select all columns.
 
         Args:
             columns (Optional[List[Union[str, dict, tuple]]]): A list of columns
-                to include in the SELECT clause.
-                Supported formats:
-                    - `str`: A column name or raw SQL expression
-                        (e.g., "id", "SUM(salary)").
-                    - `dict`: {"column": str, "alias": str} for aliasing
-                        (e.g., {"column": "id", "alias": "employee_id"}).
-                    - `tuple`: (column, alias) shorthand for aliasing
-                        (e.g., ("id", "employee_id")).
-                    - If `None`, selects all columns using `*`.
+                to include in the SELECT clause. Supported formats:
+
+                - str:
+                    A plain identifier or raw SQL expression.
+                    Examples:
+                        "id"
+                        "SUM(salary)"
+                        "table.*"
+
+                - dict:
+                    Structured config with the following keys:
+
+                        * "column": str
+                            Column name or expression.
+                            e.g., {"column": "id", "alias": "employee_id"}
+
+                        * "alias": str
+                            Optional alias for the column or expression.
+                            e.g., {"column": "salary", "aggregate": "MAX", "alias": "max_salary"}
+
+                        * "aggregate": str
+                            Optional aggregate function to apply (e.g., "SUM", "MAX").
+                            Can be combined with "column" or "case_when".
+
+                        * "case_when": dict
+                            Defines CASE WHEN logic with:
+                                - "cases": list of {condition, result}
+                                - "else_value": str
+                            e.g.,
+                            {
+                                "aggregate": "SUM",
+                                "case_when": {
+                                    "cases": [{"condition": "status = 'OK'", "result": "1"}],
+                                    "else_value": "0"
+                                },
+                                "alias": "ok_count"
+                            }
+
+                        Notes:
+                            - Either "column" or "case_when" must be provided.
+                            - Both "aggregate" and "case_when" may be combined.
+
+                - tuple:
+                    Shorthand for aliasing: (column, alias).
+                    e.g., ("id", "employee_id")
+
+                - None:
+                    Selects all columns (`*`).
 
         Returns:
             SelectQueryBuilder: The updated query builder instance.
 
         Raises:
-            ValueError: If a column specification is invalid or does not match
-            the schema (if schema validation is enabled).
+            RuntimeError:
+                If a dict config is missing both "column" and "case_when".
+            ValueError:
+                If an unsupported column format is provided.
 
         Examples:
             # Basic column selection
-            builder.select(["id", "name", "email"])
+            builder.select(["id", "name"])
 
-            # Aliased columns using dictionaries
-            builder.select([
-                {"column": "id", "alias": "employee_id"},
-                {"column": "name", "alias": "full_name"}
-            ])
+            # With aliasing
+            builder.select([{"column": "id", "alias": "employee_id"}])
 
-            # Aliased columns using tuples
-            builder.select([("id", "employee_id"), ("name", "full_name")])
+            # Tuple shorthand
+            builder.select([("id", "employee_id")])
 
-            # Raw SQL expressions
-            builder.select(["SUM(salary)", {"column": "COUNT(*)", "alias": "emp_count"}])
+            # Aggregate with column
+            builder.select([{"aggregate": "MAX", "column": "salary", "alias": "max_salary"}])
 
-            # Select all columns
-            builder.select()
+            # Case when without aggregate
+            builder.select([{
+                "case_when": {
+                    "cases": [{"condition": "status = 'OK'", "result": "'ok'"}],
+                    "else_value": "'not_ok'"
+                },
+                "alias": "status_flag"
+            }])
 
-        Notes:
-            - If a schema is set using `set_schema`, plain identifiers are validated
-            against the schema.
-            - Plain identifiers are quoted automatically; raw SQL expressions are
-            left untouched.
-            - Supports mixing formats (str, dict, tuple) in the same call.
+            # Aggregate + case when
+            builder.select([{
+                "aggregate": "SUM",
+                "case_when": {
+                    "cases": [{"condition": "status = 'OK'", "result": "1"}],
+                    "else_value": "0"
+                },
+                "alias": "ok_count"
+            }])
         """
         log_and_optionally_raise(
             module="SQL_BUILDER",
@@ -371,7 +419,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
         else:
             # Track raw column names for validation
             self.raw_columns = [
-                col["column"] if isinstance(col, dict) else
+                col["column"] if isinstance(col, dict) and "column" in col else
                 col[0] if isinstance(col, tuple) else col
                 for col in columns
             ]
@@ -388,19 +436,32 @@ class SelectQueryBuilder(BaseQueryBuilder):
             formatted = []
             for col in columns:
                 if isinstance(col, dict):
-                    base = col["column"]
                     alias = col.get("alias")
-                    base_expr = (
-                        SQLUtils.quote_column(base, self.quote_style)
-                        if base.isidentifier() or "." in base
-                        else base
-                    )
-                    if alias:
-                        formatted.append(
-                            f"{base_expr} AS {SQLUtils.quote_column(alias, self.quote_style)}"
+                    aggregate = col.get("aggregate")
+                    case_when = col.get("case_when")
+                    col_name = col.get("column")
+
+                    # Build base expression
+                    if case_when:
+                        base_expr = self._build_case_when(case_when)
+                    elif col_name:
+                        base_expr = (
+                            SQLUtils.quote_column(col_name, self.quote_style)
+                            if col_name.isidentifier() or "." in col_name
+                            else col_name
                         )
                     else:
-                        formatted.append(base_expr)
+                        raise RuntimeError("Column config must have either 'column' or 'case_when'")
+
+                    # Apply aggregation if present
+                    if aggregate:
+                        base_expr = f"{aggregate}({base_expr})"
+
+                    # Add alias if present
+                    if alias:
+                        base_expr += f" AS {SQLUtils.quote_column(alias, self.quote_style)}"
+
+                    formatted.append(base_expr)
 
                 elif isinstance(col, tuple) and len(col) == 2:
                     base, alias = col
@@ -419,7 +480,6 @@ class SelectQueryBuilder(BaseQueryBuilder):
                         ident = col[:-2]
                         base_expr = SQLUtils.quote_column(ident, self.quote_style)
                         formatted.append(f"{base_expr}.*")
-                    # Quote plain identifiers, keep raw expressions untouched
                     elif col.isidentifier() or "." in col:
                         formatted.append(SQLUtils.quote_column(col, self.quote_style))
                     else:
