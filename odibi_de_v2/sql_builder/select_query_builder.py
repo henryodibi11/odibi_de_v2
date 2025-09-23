@@ -417,12 +417,26 @@ class SelectQueryBuilder(BaseQueryBuilder):
             self.raw_columns = ["*"]
             self.columns = ["*"]
         else:
-            # Track raw column names for validation
-            self.raw_columns = [
-                col["column"] if isinstance(col, dict) and "column" in col else
-                col[0] if isinstance(col, tuple) else col
-                for col in columns
-            ]
+            # Track raw column names for validation (always strings)
+            self.raw_columns = []
+            for col in columns:
+                if isinstance(col, dict):
+                    if "column" in col:
+                        self.raw_columns.append(col["column"])
+                    elif "case_when" in col:
+                        alias = col.get("alias", "CASE_EXPR")
+                        self.raw_columns.append(alias)
+                    elif "aggregate" in col:
+                        alias = col.get("alias", "AGG_EXPR")
+                        self.raw_columns.append(alias)
+                    else:
+                        self.raw_columns.append(str(col))
+                elif isinstance(col, tuple) and len(col) == 2:
+                    self.raw_columns.append(col[0])
+                elif isinstance(col, str):
+                    self.raw_columns.append(col)
+                else:
+                    raise ValueError(f"Invalid column format: {col}")
 
             # Schema validation (only plain identifiers)
             if self.schema:
