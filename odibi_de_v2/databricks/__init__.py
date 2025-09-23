@@ -26,6 +26,7 @@ from .bronze import SparkDataReaderFromConfig
 
 from .delta import DeltaTableManager
 from .delta import DeltaMergeManager
+from .delta import DatabaseManager
 
 
 from .storage import (
@@ -69,5 +70,6 @@ __all__=[
     "get_function_registry",
     "log_to_centralized_table",
     "run_notebook_with_logging",
-    "run_bronze_pipeline"
+    "run_bronze_pipeline",
+    "DatabaseManager"
 ]
