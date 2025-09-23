@@ -859,7 +859,7 @@ class SelectQueryBuilder(BaseQueryBuilder):
     def join(
         self,
         table: str,
-        condition: Union[str, List[Union[str, tuple]]] = None,
+        condition: Optional[Union[str, List[Union[str, tuple]]]] = None,
         join_type: str = "LEFT",
         auto_quote: bool = False
     ) -> 'SelectQueryBuilder':
