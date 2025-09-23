@@ -935,10 +935,13 @@ class SelectQueryBuilder(BaseQueryBuilder):
             level="INFO"
         )
 
-        parsed_condition = SQLUtils.parse_conditions(condition, self.quote_style, auto_quote=auto_quote)
-        join_clause = f"{join_type.upper()} JOIN {self._quote_table_with_alias(table)} ON {parsed_condition}"
-
-        # Avoid duplicate JOINs
+        if join_type.upper() == "CROSS" and not condition:
+            join_clause = f"CROSS JOIN {self._quote_table_with_alias(table)}"
+        else:
+            parsed_condition = SQLUtils.parse_conditions(condition, self.quote_style, auto_quote=auto_quote)
+            join_clause = f"{join_type.upper()} JOIN {self._quote_table_with_alias(table)} ON {parsed_condition}"
+        
+                # Avoid duplicate JOINs
         if join_clause not in self.joins:
             self.joins.append(join_clause)
             log_and_optionally_raise(
