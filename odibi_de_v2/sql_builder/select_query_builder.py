@@ -443,7 +443,10 @@ class SelectQueryBuilder(BaseQueryBuilder):
 
                     # Build base expression
                     if case_when:
-                        base_expr = self._build_case_when(case_when)
+                        base_expr = self._format_case_expression(
+                            case_when.get("cases", []),
+                            case_when.get("else_value")
+                        )
                     elif col_name:
                         base_expr = (
                             SQLUtils.quote_column(col_name, self.quote_style)
@@ -616,7 +619,40 @@ class SelectQueryBuilder(BaseQueryBuilder):
             )
     
         return self
-        
+
+
+
+    def _format_case_expression(
+        self,
+        cases: List[Union[Dict[str, str], tuple]],
+        else_value: Optional[str] = None
+    ) -> str:
+        """
+        Internal helper to build CASE WHEN SQL expression (without alias).
+        """
+        if not cases:
+            raise ValueError("At least one WHEN condition is required for a CASE statement.")
+
+        case_expression = "CASE"
+        for case in cases:
+            if isinstance(case, dict):
+                condition, result = case.get("condition"), case.get("result")
+            elif isinstance(case, tuple) and len(case) == 2:
+                condition, result = case
+            else:
+                raise ValueError("Each CASE entry must be a dict with 'condition'/'result' keys or a 2-tuple.")
+
+            if not condition or not result:
+                raise ValueError("CASE entry must have both a condition and a result.")
+
+            case_expression += f" WHEN {condition} THEN {result}"
+
+        if else_value:
+            case_expression += f" ELSE {else_value}"
+
+        case_expression += " END"
+        return case_expression
+
     @log_call(module="SQL_BUILDER", component="SelectQueryBuilder")
     @enforce_types()
     @log_exceptions(
@@ -678,27 +714,9 @@ class SelectQueryBuilder(BaseQueryBuilder):
             - Conditions and results must be valid SQL expressions.
             - The alias is quoted using `SQLUtils.quote_column` to handle reserved keywords or special characters.
         """
-        if not cases:
-            raise ValueError("At least one WHEN condition is required for a CASE statement.")
-    
-        case_expression = "CASE"
-        for case in cases:
-            if isinstance(case, dict):
-                condition, result = case.get("condition"), case.get("result")
-            elif isinstance(case, tuple) and len(case) == 2:
-                condition, result = case
-            else:
-                raise ValueError("Each CASE entry must be a dict with 'condition'/'result' keys or a 2-tuple.")
-    
-            if not condition or not result:
-                raise ValueError("CASE entry must have both a condition and a result.")
-    
-            case_expression += f" WHEN {condition} THEN {result}"
-    
-        if else_value:
-            case_expression += f" ELSE {else_value}"
-    
-        case_expression += " END"
+
+        case_expression = self._format_case_expression(cases, else_value)
+        
         if alias:
             case_expression += f" AS {SQLUtils.quote_column(alias, self.quote_style)}"
     
