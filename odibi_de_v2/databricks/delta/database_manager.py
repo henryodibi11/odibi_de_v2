@@ -21,45 +21,47 @@ class DatabaseManager:
     """
 
     def __init__(self, spark: SparkSession, database: str):
-        """
-        Initialize a new DatabaseManager.
-
-        Args:
-            spark (SparkSession): The active Spark session.
-            database (str): Name of the database to manage.
-        """
         self.spark = spark
         self.database = database
 
     def list_tables(self) -> List[str]:
         """
-        List all tables in the database.
+        List only Delta tables in the database (skips temp views like `_sqldf`).
 
         Returns:
-            List[str]: Fully-qualified table names (database.table).
+            List[str]: Fully-qualified Delta table names (database.table).
         """
         tables = self.spark.sql(f"SHOW TABLES IN {self.database}").collect()
-        return [f"{self.database}.{row['tableName']}" for row in tables]
+        result = []
+        for row in tables:
+            if row["isTemporary"]:
+                print(f"⚠️ Skipping temporary view: {row['tableName']}")
+                continue
+            full_name = f"{self.database}.{row['tableName']}"
+            try:
+                detail = self.spark.sql(f"DESCRIBE DETAIL {full_name}").collect()[0]
+                if detail["format"] == "delta":
+                    result.append(full_name)
+                else:
+                    print(f"⚠️ Skipping non-Delta table: {full_name} (format={detail['format']})")
+            except Exception as e:
+                print(f"⚠️ Skipping {full_name}: not a Delta table ({e})")
+        print(f"✅ Found {len(result)} Delta tables in {self.database}")
+        return result
 
     def vacuum_all(self, retention_hours: int = 168, dry_run: bool = False) -> List[Dict[str, str]]:
         """
-        Run VACUUM on all tables in the database.
-
-        Args:
-            retention_hours (int, optional): Hours of history to retain. Defaults to 168 (7 days).
-            dry_run (bool, optional): If True, only simulate deletions. Defaults to False.
-
-        Returns:
-            List[dict]: Summary of vacuum operations with keys:
-                - table (str)
-                - retention_hours (int)
-                - dry_run (bool)
+        Run VACUUM on all Delta tables in the database.
         """
         from odibi_de_v2.databricks import DeltaTableManager
         results = []
-        for table in self.list_tables():
+        tables = self.list_tables()
+        for i, table in enumerate(tables, 1):
+            print(f"\n[{i}/{len(tables)}] Vacuuming {table} "
+                  f"(retention={retention_hours}h, dry_run={dry_run})...")
             manager = DeltaTableManager(self.spark, table, is_path=False)
             manager.vacuum(retention_hours=retention_hours, dry_run=dry_run)
+            print(f"✅ Done vacuuming {table}")
             results.append({
                 "table": table,
                 "retention_hours": retention_hours,
@@ -69,21 +71,17 @@ class DatabaseManager:
 
     def optimize_all(self, zorder_by: Optional[List[str]] = None) -> List[Dict[str, str]]:
         """
-        Run OPTIMIZE on all tables in the database.
-
-        Args:
-            zorder_by (List[str], optional): Columns for ZORDER. Defaults to None.
-
-        Returns:
-            List[dict]: Summary of optimize operations with keys:
-                - table (str)
-                - zorder_by (list or None)
+        Run OPTIMIZE on all Delta tables in the database.
         """
         from odibi_de_v2.databricks import DeltaTableManager
         results = []
-        for table in self.list_tables():
+        tables = self.list_tables()
+        for i, table in enumerate(tables, 1):
+            print(f"\n[{i}/{len(tables)}] Optimizing {table} "
+                  f"{'(ZORDER BY ' + ', '.join(zorder_by) + ')' if zorder_by else ''}...")
             manager = DeltaTableManager(self.spark, table, is_path=False)
             manager.optimize(zorder_by=zorder_by)
+            print(f"✅ Done optimizing {table}")
             results.append({
                 "table": table,
                 "zorder_by": zorder_by,
