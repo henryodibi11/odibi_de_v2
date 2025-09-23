@@ -551,8 +551,15 @@ class SQLUtils:
         """
         normalized_selected = {
             SQLUtils.normalize_identifier(col.split(" AS ")[-1])
-            if " AS " in col else SQLUtils.normalize_identifier(col)
+            if isinstance(col, str) and " AS " in col
+            else SQLUtils.normalize_identifier(col)
             for col in selected_columns
+        }
+        
+        normalized_selected |= {
+            SQLUtils.normalize_identifier(col)
+            for col in selected_columns
+            if not isinstance(col, str)
         }
         normalized_raw = {SQLUtils.normalize_identifier(expr) for expr in raw_expressions}
         normalized_group_by = [SQLUtils.normalize_identifier(col) for col in group_by_columns]
