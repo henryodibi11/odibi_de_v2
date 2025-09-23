@@ -476,9 +476,13 @@ class SelectQueryBuilder(BaseQueryBuilder):
 
                     # Add alias if present
                     if alias:
-                        base_expr += f" AS {SQLUtils.quote_column(alias, self.quote_style)}"
+                        formatted.append(
+                            f"{base_expr} AS {SQLUtils.quote_column(alias, self.quote_style)}"
+                        )
+                        self.raw_columns.append(alias)
+                    else:
+                        formatted.append(base_expr)
 
-                    formatted.append(base_expr)
 
                 elif isinstance(col, tuple) and len(col) == 2:
                     base, alias = col
