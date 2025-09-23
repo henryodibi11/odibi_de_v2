@@ -6,41 +6,59 @@ from typing import Optional, List
 
 class DeltaTableManager:
     """
-    Manages common Delta Lake operations such as history, time travel, optimize, vacuum, etc.,
-    for a specified Delta table or path.
+    A utility class for managing Delta Lake tables in Spark.
 
-    This class provides methods to interact with Delta Lake tables, enabling operations like
-    viewing transaction history, optimizing table layout, and restoring previous versions.
+    This manager provides a high-level API for common Delta operations such as
+    metadata inspection, transaction history, time travel, optimization,
+    cleanup, rollback, and cache management. It works with both
+    metastore-registered tables and path-based Delta tables.
 
-    Attributes:
-        spark (SparkSession): An active SparkSession instance.
-        table_or_path (str): The name of the table in the metastore or the filesystem path to the Delta table.
-        is_path (bool): Indicates whether table_or_path is a filesystem path (True) or a metastore table name (False).
-        delta_table (DeltaTable): The DeltaTable object, loaded lazily.
+    Key Capabilities
+    ----------------
+    - Metadata:
+        * `describe_detail()` → detailed table metadata (schema, partitions, stats).
+        * `describe_history()` / `show_history()` → full or recent transaction log.
+    - Data Versioning:
+        * `time_travel()` → read the table at a past version or timestamp.
+        * `get_latest_version()` → retrieve the latest committed version.
+        * `restore_version()` → rollback the table to a previous version.
+    - Optimization & Maintenance:
+        * `optimize()` → run Delta OPTIMIZE, with optional ZORDER.
+        * `vacuum()` → remove old files beyond a retention period (affects time travel).
+        * `register_table()` → register a path-based table in the metastore.
+    - Cache Control:
+        * `cache()`, `uncache()`, `recache()` → manage table caching in Spark memory.
+        * `is_cached()` → check if table is currently cached.
+        * `cache_status()` → report cache state, estimated size, and actual memory used.
+        * `uncache_all()` → clear all caches in the session.
+        * `list_cached_tables()` → list all cached datasets with storage details.
 
-    Methods:
-        __init__(self, spark, table_or_path, is_path=False): Initializes the DeltaTableManager.
-        describe_detail(self): Returns detailed metadata about the Delta table.
-        describe_history(self): Returns the full Delta transaction log history.
-        show_history(self, limit=10): Displays a limited number of transaction history entries.
-        time_travel(self, version=None, timestamp=None): Provides the ability to query the table as of a certain
-            version or timestamp.
-        optimize(self, zorder_by=None): Optimizes the table layout, with an option to ZORDER by specific columns.
-        vacuum(self, retention_hours=168, dry_run=False): Cleans up old snapshots and files beyond the retention period.
-        get_latest_version(self): Retrieves the latest version number of the Delta table.
-        restore_version(self, version): Restores the table to a specified version.
-        register_table(self, table_name, database=None): Registers a path-based table in the metastore.
+    Attributes
+    ----------
+    spark : SparkSession
+        The active Spark session.
+    table_or_path : str
+        Table name (if metastore) or filesystem path to the Delta table.
+    is_path : bool
+        True if `table_or_path` is a filesystem path, False if it is a metastore table.
+    delta_table : DeltaTable or None
+        The underlying DeltaTable instance (lazily loaded).
 
-    Raises:
-        ValueError: If an operation specific to path-based tables is attempted on a metastore table.
+    Notes
+    -----
+    - `VACUUM` never deletes active data, only obsolete files; it reduces
+      or eliminates the ability to time travel depending on `retention_hours`.
+    - For dev workflows, `recache()` is helpful after making table changes.
+    - `cache_status()` and `list_cached_tables()` expose info similar to the Spark UI.
 
-    Example:
-        >>> from pyspark.sql import SparkSession
-        >>> from your_package import DeltaTableManager
-        >>> spark = SparkSession.builder.getOrCreate()
-        >>> manager = DeltaTableManager(spark, "db.table_name")
-        >>> history_df = manager.show_history()
-        >>> history_df.show()
+    Example
+    -------
+    >>> spark = SparkSession.builder.getOrCreate()
+    >>> manager = DeltaTableManager(spark, "bronze_db.my_table")
+    >>> manager.optimize(zorder_by=["id", "date"])
+    >>> manager.cache()
+    >>> print(manager.cache_status())
+    {'table': 'bronze_db.my_table', 'is_cached': True, 'estimated_size_readable': '432.00 MB', ...}
     """
 
     def __init__(self, spark: SparkSession, table_or_path: str, is_path: bool = False):
@@ -342,3 +360,216 @@ class DeltaTableManager:
             USING DELTA
             LOCATION '{self.table_or_path}'
         """)
+
+    def cache(self, materialize: bool = True):
+        """
+        Caches the Delta table in Spark memory (storage memory).
+
+        This method marks the table as cached and, if `materialize` is True,
+        triggers an action to fully load the cache into executor memory.
+
+        Args:
+            materialize (bool, optional): If True, forces Spark to scan the table
+                and populate the cache immediately by executing a COUNT query.
+                Defaults to True.
+
+        Example:
+            >>> manager.cache()
+            # Table is cached in memory and ready for reuse
+        """
+        self.spark.sql(f"CACHE TABLE {self.table_or_path}")
+        if materialize:
+            self.spark.sql(f"SELECT COUNT(*) FROM {self.table_or_path}").show()
+
+    def uncache(self):
+        """
+        Removes the Delta table from Spark memory (storage memory).
+
+        This method clears the cached data for the table from executor memory.
+
+        Example:
+            >>> manager.uncache()
+            # Table cache is released
+        """
+        self.spark.sql(f"UNCACHE TABLE {self.table_or_path}")
+
+    def is_cached(self) -> bool:
+        """
+        Checks whether the Delta table is currently cached in Spark memory.
+
+        Returns:
+            bool: True if the table is cached, False otherwise.
+
+        Example:
+            >>> manager.is_cached()
+            False
+        """
+        return self.spark.catalog.isCached(self.table_or_path)
+
+    def recache(self, materialize: bool = True):
+        """
+        Refreshes and recaches the Delta table (useful during development).
+
+        This method ensures the latest version of the table is visible by first
+        uncaching any existing cache, refreshing table metadata, and then recaching.
+
+        Args:
+            materialize (bool, optional): If True, forces Spark to scan the table
+                and populate the cache immediately. Defaults to True.
+
+        Example:
+            >>> manager.recache()
+            # Ensures fresh version of the table is cached
+        """
+        if self.is_cached():
+            self.uncache()
+        self.spark.sql(f"REFRESH TABLE {self.table_or_path}")
+        self.cache(materialize=materialize)
+        
+    def cache_status(self) -> dict:
+        """
+        Returns the cache status of the Delta table, including whether it is cached,
+        Spark's estimated size (from query plan), and actual memory usage if cached.
+
+        This method combines Spark's query plan statistics with runtime storage
+        information (as seen in the Spark UI Storage tab).
+
+        Returns:
+            dict: A dictionary with the following keys:
+                - 'table' (str): The table name or path being managed.
+                - 'is_cached' (bool): True if the table is cached, False otherwise.
+                - 'estimated_size_bytes' (int): Estimated size of the table in bytes (from query plan).
+                - 'estimated_size_readable' (str): Human-readable estimated size.
+                - 'cached_memory_bytes' (int): Actual memory size used if cached (0 if not cached).
+                - 'cached_memory_readable' (str): Human-readable actual memory size.
+
+        Example:
+            >>> status = manager.cache_status()
+            >>> print(status)
+            {
+                'table': 'bronze_db.my_table',
+                'is_cached': True,
+                'estimated_size_bytes': 452984832,
+                'estimated_size_readable': '432.00 MB',
+                'cached_memory_bytes': 6291456,
+                'cached_memory_readable': '6.00 MB'
+            }
+        """
+        import math
+
+        is_cached = self.is_cached()
+
+        # ---- Estimated size from query plan ----
+        logical_plan = (
+            self.spark.table(self.table_or_path)
+            if not self.is_path else
+            self.spark.read.format("delta").load(self.table_or_path)
+        )
+        size_in_bytes = logical_plan._jdf.queryExecution().logical().stats().sizeInBytes()
+
+        def human_readable(num_bytes: int) -> str:
+            if num_bytes <= 0:
+                return "0 B"
+            units = ["B", "KB", "MB", "GB", "TB"]
+            idx = int(math.floor(math.log(num_bytes, 1024)))
+            return f"{num_bytes / (1024**idx):.2f} {units[idx]}"
+
+        cached_memory_bytes = 0
+        try:
+            storage_status = self.spark._jsparkSession.sharedState().cacheManager().lookupCachedData(
+                logical_plan._jdf.logicalPlan()
+            )
+            if storage_status.nonEmpty():
+                cached_memory_bytes = storage_status.get().sizeInBytes()
+        except Exception:
+            # If Spark internals change or table isn't cached
+            cached_memory_bytes = 0
+
+        return {
+            "table": self.table_or_path,
+            "is_cached": is_cached,
+            "estimated_size_bytes": size_in_bytes,
+            "estimated_size_readable": human_readable(size_in_bytes),
+            "cached_memory_bytes": cached_memory_bytes,
+            "cached_memory_readable": human_readable(cached_memory_bytes),
+        }
+
+
+    @staticmethod
+    def uncache_all(spark: SparkSession):
+        """
+        Removes all cached tables from the Spark session.
+
+        This method clears every cached table in the current Spark session,
+        releasing the associated executor memory. Useful during development
+        or debugging when multiple tables have been cached and you want to
+        reset the session state.
+
+        Args:
+            spark (SparkSession): The active Spark session.
+
+        Example:
+            >>> DeltaTableManager.uncache_all(spark)
+            # All cached tables are removed
+        """
+        spark.catalog.clearCache()
+
+    @staticmethod
+    def list_cached_tables(spark: SparkSession) -> list:
+        """
+        Lists all cached tables in the current Spark session, including their
+        actual memory usage (similar to the Spark UI Storage tab).
+
+        Args:
+            spark (SparkSession): The active Spark session.
+
+        Returns:
+            list: A list of dictionaries, each containing:
+                - 'table' (str): Table or view name if registered, otherwise internal ID.
+                - 'cached_memory_bytes' (int): Actual memory used by the cache in bytes.
+                - 'cached_memory_readable' (str): Human-readable memory size.
+                - 'storage_level' (str): Storage level (e.g., MEMORY_AND_DISK).
+                - 'partitions_cached' (int): Number of partitions currently cached.
+
+        Example:
+            >>> DeltaTableManager.list_cached_tables(spark)
+            [
+                {
+                    'table': 'bronze_db.my_table',
+                    'cached_memory_bytes': 6291456,
+                    'cached_memory_readable': '6.00 MB',
+                    'storage_level': 'MEMORY_AND_DISK',
+                    'partitions_cached': 5
+                }
+            ]
+        """
+        import math
+        results = []
+
+        def human_readable(num_bytes: int) -> str:
+            if num_bytes <= 0:
+                return "0 B"
+            units = ["B", "KB", "MB", "GB", "TB"]
+            idx = int(math.floor(math.log(num_bytes, 1024)))
+            return f"{num_bytes / (1024**idx):.2f} {units[idx]}"
+
+        try:
+            jsc = spark.sparkContext._jsc
+            rdds = jsc.getPersistentRDDs()
+            for rdd_id, rdd in rdds.items():
+                name = rdd.name() if rdd.name() else f"RDD_{rdd_id}"
+                storage = rdd.getStorageLevel().toString()
+                mem_size = rdd.memorySize()
+                parts_cached = rdd.numCachedPartitions()
+
+                results.append({
+                    "table": name,
+                    "cached_memory_bytes": mem_size,
+                    "cached_memory_readable": human_readable(mem_size),
+                    "storage_level": storage,
+                    "partitions_cached": parts_cached
+                })
+        except Exception as e:
+            results.append({"error": str(e)})
+
+        return results
