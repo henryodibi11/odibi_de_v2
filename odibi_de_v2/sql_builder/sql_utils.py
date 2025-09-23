@@ -54,11 +54,15 @@ class SQLUtils:
            (quote_style == '[' and column.startswith('[')) or \
            (quote_style == '`' and column.startswith('`')):
             return column
-    
+
         # SQL expression (e.g., COUNT(...))
         if "(" in column and ")" in column:
             return column
-    
+
+        if "." in column:
+            parts = column.split(".")
+            return ".".join(SQLUtils.quote_column(p, quote_style, always_quote) for p in parts)
+
         # Always quote mode
         if always_quote:
             if quote_style == '"':
