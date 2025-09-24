@@ -87,3 +87,79 @@ class DatabaseManager:
                 "zorder_by": zorder_by,
             })
         return results
+
+from pyspark.sql import SparkSession
+
+from typing import Optional, List, Dict
+
+
+class DatabaseManager:
+
+    """
+
+    Provides database-level operations for Delta tables, such as VACUUM, OPTIMIZE, CACHE, and UNCACHE
+
+    across all tables in a given database.
+
+    """
+
+    def __init__(self, spark: SparkSession, database: str):
+
+        self.spark = spark
+
+        self.database = database
+
+    def list_tables(self) -> List[str]:
+
+        """Return fully-qualified table names for the database."""
+
+        tables = self.spark.sql(f"SHOW TABLES IN {self.database}").collect()
+
+        return [f"{self.database}.{row['tableName']}" for row in tables]
+
+    def cache_all(
+        self,
+        name_filter: Optional[str] = None,
+        materialize: bool = True
+    ) -> List[Dict[str, str]]:
+        """
+        Cache all (or filtered) tables in the database.
+        Args:
+            name_filter (str, optional): Only cache tables whose names contain this string.
+            materialize (bool): If True, force Spark to load the cache immediately with COUNT(*).
+        Returns:
+            List[dict]: Summary of cached tables.
+        """
+        tables = self.list_tables()
+        if name_filter:
+            tables = [t for t in tables if name_filter.lower() in t.lower()]
+        results = []
+        for table in tables:
+            print(f"[DatabaseManager] Caching table: {table}")
+            self.spark.sql(f"CACHE TABLE {table}")
+            if materialize:
+                self.spark.sql(f"SELECT COUNT(*) FROM {table}").show()
+            results.append({"table": table, "cached": True})
+        return results
+
+    def uncache_all(
+        self,
+        name_filter: Optional[str] = None
+    ) -> List[Dict[str, str]]:
+        """
+        Uncache all (or filtered) tables in the database.
+        Args:
+            name_filter (str, optional): Only uncache tables whose names contain this string.
+        Returns:
+            List[dict]: Summary of uncached tables.
+        """
+        tables = self.list_tables()
+        if name_filter:
+            tables = [t for t in tables if name_filter.lower() in t.lower()]
+        results = []
+        for table in tables:
+            print(f"[DatabaseManager] Uncaching table: {table}")
+            self.spark.sql(f"UNCACHE TABLE {table}")
+            results.append({"table": table, "uncached": True})
+        return results
+ 
