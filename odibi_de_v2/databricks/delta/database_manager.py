@@ -4,11 +4,11 @@ from typing import Optional, List, Dict
 
 class DatabaseManager:
     """
-    Provides database-level operations for Delta tables, such as VACUUM or OPTIMIZE
+    Provides database-level operations for Delta tables, such as VACUUM, OPTIMIZE, CACHE, and UNCACHE
     across all tables in a given database.
 
-    This class leverages DeltaTableManager for table-level operations, giving you
-    both granular and bulk management capabilities.
+    This class leverages DeltaTableManager for table-level operations, giving you both
+    granular and bulk management capabilities.
 
     Attributes:
         spark (SparkSession): The active Spark session.
@@ -25,34 +25,12 @@ class DatabaseManager:
         self.database = database
 
     def list_tables(self) -> List[str]:
-        """
-        List only Delta tables in the database (skips temp views like `_sqldf`).
-
-        Returns:
-            List[str]: Fully-qualified Delta table names (database.table).
-        """
+        """Return fully-qualified table names for the database."""
         tables = self.spark.sql(f"SHOW TABLES IN {self.database}").collect()
-        result = []
-        for row in tables:
-            if row["isTemporary"]:
-                print(f"⚠️ Skipping temporary view: {row['tableName']}")
-                continue
-            full_name = f"{self.database}.{row['tableName']}"
-            try:
-                detail = self.spark.sql(f"DESCRIBE DETAIL {full_name}").collect()[0]
-                if detail["format"] == "delta":
-                    result.append(full_name)
-                else:
-                    print(f"⚠️ Skipping non-Delta table: {full_name} (format={detail['format']})")
-            except Exception as e:
-                print(f"⚠️ Skipping {full_name}: not a Delta table ({e})")
-        print(f"✅ Found {len(result)} Delta tables in {self.database}")
-        return result
+        return [f"{self.database}.{row['tableName']}" for row in tables]
 
     def vacuum_all(self, retention_hours: int = 168, dry_run: bool = False) -> List[Dict[str, str]]:
-        """
-        Run VACUUM on all Delta tables in the database.
-        """
+        """Run VACUUM on all Delta tables in the database."""
         from odibi_de_v2.databricks import DeltaTableManager
         results = []
         tables = self.list_tables()
@@ -62,17 +40,11 @@ class DatabaseManager:
             manager = DeltaTableManager(self.spark, table, is_path=False)
             manager.vacuum(retention_hours=retention_hours, dry_run=dry_run)
             print(f"✅ Done vacuuming {table}")
-            results.append({
-                "table": table,
-                "retention_hours": retention_hours,
-                "dry_run": dry_run,
-            })
+            results.append({"table": table, "vacuumed": True})
         return results
 
     def optimize_all(self, zorder_by: Optional[List[str]] = None) -> List[Dict[str, str]]:
-        """
-        Run OPTIMIZE on all Delta tables in the database.
-        """
+        """Run OPTIMIZE on all Delta tables in the database."""
         from odibi_de_v2.databricks import DeltaTableManager
         results = []
         tables = self.list_tables()
@@ -82,54 +54,15 @@ class DatabaseManager:
             manager = DeltaTableManager(self.spark, table, is_path=False)
             manager.optimize(zorder_by=zorder_by)
             print(f"✅ Done optimizing {table}")
-            results.append({
-                "table": table,
-                "zorder_by": zorder_by,
-            })
+            results.append({"table": table, "zorder_by": zorder_by})
         return results
-
-from pyspark.sql import SparkSession
-
-from typing import Optional, List, Dict
-
-
-class DatabaseManager:
-
-    """
-
-    Provides database-level operations for Delta tables, such as VACUUM, OPTIMIZE, CACHE, and UNCACHE
-
-    across all tables in a given database.
-
-    """
-
-    def __init__(self, spark: SparkSession, database: str):
-
-        self.spark = spark
-
-        self.database = database
-
-    def list_tables(self) -> List[str]:
-
-        """Return fully-qualified table names for the database."""
-
-        tables = self.spark.sql(f"SHOW TABLES IN {self.database}").collect()
-
-        return [f"{self.database}.{row['tableName']}" for row in tables]
 
     def cache_all(
         self,
         name_filter: Optional[str] = None,
         materialize: bool = True
     ) -> List[Dict[str, str]]:
-        """
-        Cache all (or filtered) tables in the database.
-        Args:
-            name_filter (str, optional): Only cache tables whose names contain this string.
-            materialize (bool): If True, force Spark to load the cache immediately with COUNT(*).
-        Returns:
-            List[dict]: Summary of cached tables.
-        """
+        """Cache all (or filtered) tables in the database."""
         tables = self.list_tables()
         if name_filter:
             tables = [t for t in tables if name_filter.lower() in t.lower()]
@@ -146,13 +79,7 @@ class DatabaseManager:
         self,
         name_filter: Optional[str] = None
     ) -> List[Dict[str, str]]:
-        """
-        Uncache all (or filtered) tables in the database.
-        Args:
-            name_filter (str, optional): Only uncache tables whose names contain this string.
-        Returns:
-            List[dict]: Summary of uncached tables.
-        """
+        """Uncache all (or filtered) tables in the database."""
         tables = self.list_tables()
         if name_filter:
             tables = [t for t in tables if name_filter.lower() in t.lower()]
@@ -162,4 +89,3 @@ class DatabaseManager:
             self.spark.sql(f"UNCACHE TABLE {table}")
             results.append({"table": table, "uncached": True})
         return results
- 
