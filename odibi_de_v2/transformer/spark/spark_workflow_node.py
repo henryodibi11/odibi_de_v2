@@ -34,6 +34,7 @@ class SparkWorkflowNode(IDataTransformer):
     - A mix of both config + Python, in one consistent interface.
 
     Each node optionally registers its output as a Spark temp view for downstream use.
+    Individual steps can also register intermediate views if `"view_name"` is provided.
 
     ---
     ## 📊 Example Dataset
@@ -101,23 +102,26 @@ class SparkWorkflowNode(IDataTransformer):
     >>> node.transform().show()
 
     ---
-    ## 📝 Example 5: Config/Metadata Style
+    ## 📝 Example 5: Config/Metadata Style with Intermediate Views
     >>> steps_config = [
-    ...     {"step_order": 1, "step_type": "sql", "step_value": "SELECT * FROM raw_weather"},
+    ...     {"step_order": 1, "step_type": "sql", "step_value": "SELECT * FROM raw_weather",
+    ...      "view_name": "weather_base"},
     ...     {"step_order": 2, "step_type": "config", "step_value": "derived",
     ...      "params": '{"temp_c": "(temperature-32)*5/9"}'},
-    ...     {"step_order": 3, "step_type": "python",
-    ...      "step_value": "__main__.normalize_column",
-    ...      "params": '{"colname": "temperature", "factor": 100}'}
+    ...     {"step_order": 3, "step_type": "sql",
+    ...      "step_value": "SELECT temp_c FROM weather_base WHERE temp_c > 0",
+    ...      "view_name": "weather_pos"}
     ... ]
     >>> node = SparkWorkflowNode(steps=steps_config, view_name="weather_config")
     >>> node.transform().show()
 
     ---
-    ## 📝 Example 6: Mixing Config + Python
+    ## 📝 Example 6: Mixing Config + Python with Intermediate Views
     >>> steps_mixed = [
-    ...     {"step_order": 1, "step_type": "sql", "step_value": "SELECT * FROM raw_weather"},
-    ...     (normalize_column, {"colname": "temperature", "factor": 100})
+    ...     {"step_type": "sql", "step_value": "SELECT * FROM raw_weather", "view_name": "weather_start"},
+    ...     (normalize_column, {"colname": "temperature", "factor": 100}),
+    ...     {"step_type": "sql", "step_value": "SELECT temperature FROM weather_start",
+    ...      "view_name": "weather_temp"}
     ... ]
     >>> node = SparkWorkflowNode(steps=steps_mixed, view_name="weather_mixed")
     >>> node.transform().show()
@@ -127,9 +131,12 @@ class SparkWorkflowNode(IDataTransformer):
     - Functions should **accept a DataFrame and return a DataFrame**.
     - Use `dotted paths` for reusable functions (e.g., `"odibi_de_v2.weather.normalize_column"`).
     - Use config for **simple operations**; Python for **complex logic**.
-    - Use `view_name` to register intermediate steps for reuse in SQL.
+    - Use `"view_name"` inside a step **only when you need to reference it downstream**.
+    - Avoid registering views for every step to prevent Spark namespace clutter.
+    - Final output is always registered under the node’s `view_name`.
 
     """
+
 
     def __init__(
         self,
@@ -160,11 +167,14 @@ class SparkWorkflowNode(IDataTransformer):
         )
 
         for _, step in ordered_steps:
+            step_view_name = None
+
             # --- Config/metadata style ---
             if isinstance(step, dict) and "step_type" in step:
                 step_type = step.get("step_type")
                 step_value = step.get("step_value")
                 params = json.loads(step["params"]) if step.get("params") else {}
+                step_view_name = step.get("view_name")  # 👈 optional per-step
 
                 if step_type == "sql":
                     df = spark.sql(step_value)
@@ -190,6 +200,11 @@ class SparkWorkflowNode(IDataTransformer):
                 df = func(df, **params)
             else:
                 raise ValueError(f"Unsupported step type: {type(step)}")
+
+            # --- Register intermediate view if requested ---
+            if step_view_name and df is not None:
+                df.createOrReplaceTempView(step_view_name)
+
 
         if self.register_view and df is not None:
             df.createOrReplaceTempView(self.view_name)
