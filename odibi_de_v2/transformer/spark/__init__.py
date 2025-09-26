@@ -16,6 +16,15 @@ from .spark_workflow_transformer import SparkWorkflowTransformer
 from .spark_humidity_ratio_extractor import SparkHumidityRatioExtractor
 from .spark_weather_workflow_transformer import SparkWeatherWorkflowTransformer
 from .spark_workflow_node import SparkWorkflowNode
+from .spark_time_series import (
+    rolling_window,
+    period_to_date,
+    fill_time_gaps,
+    lag_lead_gap,
+    cumulative_window,
+    add_period_columns,
+    generate_calendar_table,
+)
 
 __all__ = [
     "SparkColumnRenamer",
@@ -35,5 +44,12 @@ __all__ = [
     "SparkWorkflowTransformer",
     "SparkHumidityRatioExtractor",
     "SparkWeatherWorkflowTransformer",
-    "SparkWorkflowNode"
+    "SparkWorkflowNode",
+    "rolling_window",
+    "period_to_date",
+    "fill_time_gaps",
+    "lag_lead_gap",
+    "cumulative_window",
+    "add_period_columns",
+    "generate_calendar_table",
 ]
