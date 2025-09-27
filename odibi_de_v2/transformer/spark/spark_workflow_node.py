@@ -102,21 +102,37 @@ class SparkWorkflowNode(IDataTransformer):
     >>> node.transform().show()
 
     ---
-    ## 📝 Example 5: Config/Metadata Style with Intermediate Views
-    >>> steps_config = [
-    ...     {"step_order": 1, "step_type": "sql", "step_value": "SELECT * FROM raw_weather",
-    ...      "view_name": "weather_base"},
-    ...     {"step_order": 2, "step_type": "config", "step_value": "derived",
-    ...      "params": '{"temp_c": "(temperature-32)*5/9"}'},
-    ...     {"step_order": 3, "step_type": "sql",
-    ...      "step_value": "SELECT temp_c FROM weather_base WHERE temp_c > 0",
-    ...      "view_name": "weather_pos"}
+    ## 📝 Example 5: Config Pivot (long → wide)
+    >>> steps_pivot = [
+    ...     {"step_type": "sql", "step_value": "SELECT * FROM raw_weather", "view_name": "weather_base"},
+    ...     {"step_type": "config", "step_value": "pivot",
+    ...      "params": {
+    ...          "conversion_query": "SELECT * FROM weather_base",
+    ...          "group_by": ["status"],
+    ...          "pivot_column": "humidity",
+    ...          "value_column": "temperature",
+    ...          "agg_func": "first"
+    ...      },
+    ...      "view_name": "weather_pivot"}
     ... ]
-    >>> node = SparkWorkflowNode(steps=steps_config, view_name="weather_config")
+    >>> node = SparkWorkflowNode(steps=steps_pivot, view_name="weather_pivot")
     >>> node.transform().show()
 
     ---
-    ## 📝 Example 6: Mixing Config + Python with Intermediate Views
+    ## 📝 Example 6: Config Unpivot (wide → long)
+    >>> # Imagine df_wide has columns: ["id", "temp", "pressure", "humidity"]
+    >>> df_wide.createOrReplaceTempView("wide_weather")
+    >>> steps_unpivot = [
+    ...     {"step_type": "sql", "step_value": "SELECT * FROM wide_weather", "view_name": "wide_weather"},
+    ...     {"step_type": "config", "step_value": "unpivot",
+    ...      "params": {"id_columns": ["id"]},
+    ...      "view_name": "weather_unpivot"}
+    ... ]
+    >>> node = SparkWorkflowNode(steps=steps_unpivot, view_name="weather_unpivot")
+    >>> node.transform().show()
+
+    ---
+    ## 📝 Example 7: Mixing Config + Python with Intermediate Views
     >>> steps_mixed = [
     ...     {"step_type": "sql", "step_value": "SELECT * FROM raw_weather", "view_name": "weather_start"},
     ...     (normalize_column, {"colname": "temperature", "factor": 100}),
@@ -134,8 +150,10 @@ class SparkWorkflowNode(IDataTransformer):
     - Use `"view_name"` inside a step **only when you need to reference it downstream**.
     - Avoid registering views for every step to prevent Spark namespace clutter.
     - Final output is always registered under the node’s `view_name`.
+    - Remember: **pivot requires a SQL `conversion_query`**, while **unpivot consumes an existing DataFrame**.
 
     """
+
 
 
     def __init__(
@@ -173,7 +191,10 @@ class SparkWorkflowNode(IDataTransformer):
             if isinstance(step, dict) and "step_type" in step:
                 step_type = step.get("step_type")
                 step_value = step.get("step_value")
-                params = json.loads(step["params"]) if step.get("params") else {}
+                params = step.get("params", {})
+                if isinstance(params, str):
+                    params = json.loads(params)
+
                 step_view_name = step.get("view_name")  # 👈 optional per-step
 
                 if step_type == "sql":
@@ -215,7 +236,7 @@ class SparkWorkflowNode(IDataTransformer):
         """Apply config-driven pivot, unpivot, or derived column operations."""
         if op == "pivot":
             from odibi_de_v2.transformer import SparkPivotTransformer
-            return SparkPivotTransformer(**params, register_view=False).transform(df)
+            return SparkPivotTransformer(**params, register_view=False).transform()
 
         elif op == "unpivot":
             from odibi_de_v2.transformer import SparkUnpivotTransformer
