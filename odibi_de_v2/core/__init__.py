@@ -8,7 +8,7 @@ from .base_connector import BaseConnection
 from .enums import (
     DataType, CloudService, Framework, ErrorType,
     ColumnType)
-from .transformer import IDataTransformer
+from .transformer import IDataTransformer, node_wrapper
 from .query_builder import BaseQueryBuilder
 
 
@@ -26,5 +26,6 @@ __all__ = [
     "ErrorType",
     "ColumnType",
     "IDataTransformer",
+    "node_wrapper",
     "BaseQueryBuilder"
 ]
