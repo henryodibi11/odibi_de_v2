@@ -23,47 +23,57 @@ class IDataTransformer(ABC):
         pass
 
 
-def node_wrapper(cls: Callable) -> Callable:
+from typing import Callable, Any
+from pyspark.sql import DataFrame
+
+
+def node_wrapper(obj: Callable) -> Callable:
     """
-    Wrap a transformer class so it can be used directly inside
-    a SparkWorkflowNode step.
+    Wrap a callable so it can be used directly inside a SparkWorkflowNode step.
 
-    This wrapper ensures the step conforms to the convention
-    of taking a DataFrame as the first argument, while still
-    supporting transformer classes that expect a conversion_query
-    or config.
+    This wrapper unifies two scenarios:
 
-    Args:
-        cls (Callable): A transformer class with a .transform() method.
+    1. **Transformer classes** (with a `.transform()` method):
+       - `obj` is a class that implements `.transform()`.
+       - The wrapper will instantiate the class with the provided `**params`
+         and call its `.transform()` method.
+       - Example:
+         >>> WeatherNode = node_wrapper(SparkWeatherWorkflowTransformer)
+         >>> step = (WeatherNode, {"conversion_query": "SELECT * FROM base_weather"})
 
-    Returns:
-        Callable: A function that accepts (df, **params) and returns
-        a DataFrame.
+    2. **Plain functions** that return a DataFrame:
+       - `obj` is a function that directly returns a DataFrame and does not
+         require a `df` as its first argument.
+       - The wrapper simply calls the function with the provided `**params`.
+       - Example:
+         >>> EnergyNode = node_wrapper(get_energy_efficiency_data)
+         >>> step = (EnergyNode, {"source_table": "my_table", "tags_table": "tags"})
 
-    Example:
-        >>> from odibi_de_v2.core.transformer import node_wrapper
-        >>> from odibi_de_v2.transformer import SparkWeatherWorkflowTransformer
-        >>>
-        >>> WeatherNode = node_wrapper(SparkWeatherWorkflowTransformer)
-        >>> step = (WeatherNode, {
-        ...     "conversion_query": "SELECT * FROM previous_view",
-        ...     "humidity_ratio_configs": [
-        ...         {
-        ...             "input_params": {
-        ...                 "Tdb": "Inlet Air Temperature Dry Bulb",
-        ...                 "RH": "Inlet Air Relative Humidity",
-        ...                 "pressure": "Pressure at Elevation"
-        ...             },
-        ...             "output_col_name": "Humidity Ratio Inlet"
-        ...         }
-        ...     ],
-        ...     "view_name": "humidity_df",
-        ...     "register_view": True
-        ... })
+    Parameters
+    ----------
+    obj : Callable
+        Either a transformer class (with `.transform()`) or a plain function
+        that returns a DataFrame.
+
+    Returns
+    -------
+    Callable
+        A function with the SparkWorkflowNode-compatible signature:
+        `(df: DataFrame, **params) -> DataFrame`.
+
+    Notes
+    -----
+    - The input `df` argument is preserved for compatibility with the
+      SparkWorkflowNode step contract but ignored for plain functions and
+      transformer classes that don't consume it.
+    - This ensures you can mix both SQL/config steps and Python steps inside
+      one `SparkWorkflowNode`.
     """
-
-    def wrapper(df: DataFrame, **params: Dict[str, Any]) -> DataFrame:
-        transformer = cls(**params)
-        return transformer.transform()
+    def wrapper(df: DataFrame, **params: Any) -> DataFrame:
+        if hasattr(obj, "transform"):
+            transformer = obj(**params)
+            return transformer.transform()
+        else:
+            return obj(**params)
 
     return wrapper
