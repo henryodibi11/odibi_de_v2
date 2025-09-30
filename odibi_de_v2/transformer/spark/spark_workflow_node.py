@@ -13,6 +13,15 @@ from odibi_de_v2.core.enums import ErrorType
 from odibi_de_v2.spark_utils import get_active_spark
 
 
+StepType = Union[
+    str,
+    Dict[str, Any],
+    Callable[[DataFrame], DataFrame],
+    Tuple[Callable[..., DataFrame], Dict[str, Any]]
+]
+
+
+
 @enforce_types(strict=True)
 @benchmark(module="TRANSFORMER", component="SparkWorkflowNode")
 @log_call(module="TRANSFORMER", component="SparkWorkflowNode")
@@ -158,7 +167,7 @@ class SparkWorkflowNode(IDataTransformer):
 
     def __init__(
         self,
-        steps: List[Union[str, Dict[str, Any], Callable[[DataFrame], DataFrame], Tuple]],
+        steps: List[StepType],
         view_name: str = "workflow_output",
         register_view: bool = True,
     ):
