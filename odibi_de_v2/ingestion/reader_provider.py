@@ -54,7 +54,7 @@ class ReaderProvider:
     @log_exceptions(
         module="INGESTION",
         component="ReaderProvider",
-        error_type=ErrorType.Runtime_Error,
+        error_type=ErrorType.RUNTIME_ERROR,
         raise_type=RuntimeError)
     def __init__(
         self,
@@ -100,7 +100,7 @@ class ReaderProvider:
     @log_exceptions(
         module="INGESTION",
         component="ReaderProvider",
-        error_type=ErrorType.Runtime_Error,
+        error_type=ErrorType.RUNTIME_ERROR,
         raise_type=RuntimeError)
     def read(
         self,
