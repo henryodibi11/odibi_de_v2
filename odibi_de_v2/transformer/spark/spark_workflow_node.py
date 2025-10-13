@@ -163,7 +163,7 @@ class SparkWorkflowNode(IDataTransformer):
     - Remember: **pivot requires a SQL `conversion_query`**, while **unpivot consumes an existing DataFrame**.
 
     """
-
+    from odibi_de_v2.transformer.spark.transformation_tracker import TransformationTracker
 
 
     def __init__(
