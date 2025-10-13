@@ -25,6 +25,9 @@ from .spark_time_series import (
     add_period_columns,
     generate_calendar_table,
 )
+from .transformation_tracker import TransformationTracker
+
+
 
 __all__ = [
     "SparkColumnRenamer",
@@ -52,4 +55,5 @@ __all__ = [
     "cumulative_window",
     "add_period_columns",
     "generate_calendar_table",
+    "TransformationTracker"
 ]
