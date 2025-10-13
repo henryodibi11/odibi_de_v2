@@ -76,7 +76,7 @@ from .types import is_type
 from .engine_utils import detect_engine
 from .safe_globals import SAFE_GLOBALS
 from .get_columns import get_columns_by_type
-
+from .init_utils import generate_recursive_inits
 
 
 __all__ = [
@@ -152,6 +152,9 @@ __all__ = [
     "SAFE_GLOBALS",
 
     # get_columns_by_type
-    "get_columns_by_type"
+    "get_columns_by_type",
+
+    # init utils
+    "generate_recursive_inits",
 
 ]
