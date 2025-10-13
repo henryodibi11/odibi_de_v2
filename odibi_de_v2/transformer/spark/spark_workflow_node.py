@@ -11,6 +11,7 @@ from odibi_de_v2.utils import (
 from odibi_de_v2.logger import log_exceptions
 from odibi_de_v2.core.enums import ErrorType
 from odibi_de_v2.spark_utils import get_active_spark
+import time
 
 
 StepType = Union[
@@ -170,10 +171,12 @@ class SparkWorkflowNode(IDataTransformer):
         steps: List[StepType],
         view_name: str = "workflow_output",
         register_view: bool = True,
+        tracker: Optional[TransformationTracker] = None,
     ):
         self.steps = steps
         self.view_name = view_name
         self.register_view = register_view
+        self.tracker = tracker
 
     @ensure_output_type(DataFrame)
     @log_exceptions(
@@ -186,6 +189,12 @@ class SparkWorkflowNode(IDataTransformer):
         spark = get_active_spark()
         df: Optional[DataFrame] = None
 
+        tracker = kwargs.get("tracker", self.tracker)
+        parent_node = kwargs.get("parent_node")
+
+        if tracker:
+            tracker.new_run()
+
         # Preserve list order unless explicit step_order is provided
         ordered_steps = sorted(
             [(s.get("step_order", i), s) if isinstance(s, dict) else (i, s)
@@ -193,8 +202,13 @@ class SparkWorkflowNode(IDataTransformer):
             key=lambda x: x[0]
         )
 
+        step_counter = 0
         for _, step in ordered_steps:
             step_view_name = None
+            before_df = df
+            step_type, intent = None, None
+            step_counter +=1
+            start_time = time.time()
 
             # --- Config/metadata style ---
             if isinstance(step, dict) and "step_type" in step:
@@ -234,7 +248,16 @@ class SparkWorkflowNode(IDataTransformer):
             # --- Register intermediate view if requested ---
             if step_view_name and df is not None:
                 df.createOrReplaceTempView(step_view_name)
-
+            # 🔹 Log transformation step
+            duration = time.time() - start_time
+            if tracker and df is not None:
+                tracker.log(before_df, df,
+                            node_name=self.view_name,
+                            step_type=step_type,
+                            intent=intent,
+                            parent_node=parent_node,
+                            step_order=step_counter,
+                            duration_seconds=duration)
 
         if self.register_view and df is not None:
             df.createOrReplaceTempView(self.view_name)
