@@ -5,7 +5,7 @@ from .spark import (
     SparkPivotTransformer, SparkUnpivotTransformer, SparkPivotWithCalculationTransformer,
     SparkPivotSteamPropertyTransformer, SparkSteamWorkflowTransformer,
     SparkWorkflowTransformer, SparkHumidityRatioExtractor, SparkWeatherWorkflowTransformer,
-    SparkWorkflowNode,
+    SparkWorkflowNode,TransformationTracker
     # Time series functions
     rolling_window, period_to_date, fill_time_gaps,
     lag_lead_gap, cumulative_window, add_period_columns,
@@ -56,6 +56,7 @@ __all__ = [
     "SparkHumidityRatioExtractor",
     "SparkWeatherWorkflowTransformer",
     "SparkWorkflowNode",
+    "TransformationTracker",
     # Spark time series
     "rolling_window",
     "period_to_date",
