@@ -77,7 +77,7 @@ from .engine_utils import detect_engine
 from .safe_globals import SAFE_GLOBALS
 from .get_columns import get_columns_by_type
 from .init_utils import generate_recursive_inits
-
+from .threading import get_dynamic_thread_count
 
 __all__ = [
     # excel ingestion
