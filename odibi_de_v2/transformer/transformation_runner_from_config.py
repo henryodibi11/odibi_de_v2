@@ -21,7 +21,8 @@ class TransformationRunnerFromConfig:
         project: str,
         env: str = "qat",
         log_level: str = "ERROR",
-        max_workers: int = get_dynamic_thread_count(workload_type="cpu")
+        max_workers: int = get_dynamic_thread_count(workload_type="cpu"),
+        **kwargs
         ):
         self.sql_provider = sql_provider
         self.project = project
@@ -33,6 +34,7 @@ class TransformationRunnerFromConfig:
         self.spark.sql("CREATE SCHEMA IF NOT EXISTS config_driven")
         self.logger=get_logger()
         self.logger.set_log_level(log_level)
+        self.kwargs = kwargs
 
 
     # ----------------------------------------------------------------------
@@ -139,7 +141,7 @@ class TransformationRunnerFromConfig:
             self._log_start(cfg)
             module = importlib.import_module(full_module)
             func = getattr(module, func_name)
-            func()  # or func(self.spark, **cfg)
+            func(**self.kwargs)  # or func(self.spark, **cfg)
             self._log_end(cfg, "SUCCESS", start_time)
             print(f"✅ Success: {full_module}.{func_name}\n")
             log_and_optionally_raise(
