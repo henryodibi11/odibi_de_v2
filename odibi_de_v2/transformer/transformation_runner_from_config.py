@@ -17,7 +17,8 @@ class TransformationRunnerFromConfig:
     """
     def __init__(
         self,
-        sql_provider,project: str,
+        sql_provider,
+        project: str,
         env: str = "qat",
         log_level: str = "ERROR",
         max_workers: int = get_dynamic_thread_count(workload_type="cpu")
