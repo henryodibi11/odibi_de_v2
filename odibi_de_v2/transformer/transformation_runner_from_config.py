@@ -44,7 +44,7 @@ class TransformationRunnerFromConfig:
         FROM TransformationConfig
         WHERE project = '{self.project}' AND enabled = 1 AND env = '{self.env}'
         """
-        source_target = sql_provider.read(
+        source_target = self.sql_provider.read(
             data_type=DataType.SQL,
             container="",
             path_prefix="",
