@@ -34,7 +34,7 @@ from .transformer_provider import TransformerProvider
 from .sql_generator_from_config import SQLGeneratorFromConfig
 from .transformer_from_config import TransformerFromConfig
 from .transformer_orchestrator import TransformerOrchestrator
-
+from .transformation_runner_from_config import TransformationRunnerFromConfig
 
 __all__ = [
     # Spark
@@ -84,4 +84,5 @@ __all__ = [
     "SQLGeneratorFromConfig",
     "TransformerFromConfig",
     "TransformerOrchestrator",
+    "TransformationRunnerFromConfig",
 ]
