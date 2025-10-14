@@ -22,7 +22,7 @@ class TransformationRunnerFromConfig:
         log_level: str = "ERROR",
         max_workers: int = get_dynamic_thread_count(workload_type="cpu")
         ):
-        self.sql_provider = sql_provider,
+        self.sql_provider = sql_provider
         self.project = project
         self.env = env
         self.log_level = log_level
