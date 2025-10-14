@@ -157,4 +157,7 @@ __all__ = [
     # init utils
     "generate_recursive_inits",
 
+    # Threading
+    "get_dynamic_thread_count",
+
 ]
