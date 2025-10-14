@@ -21,7 +21,7 @@ class TransformationRunnerFromConfig:
         project: str,
         env: str = "qat",
         log_level: str = "ERROR",
-        max_workers: int = get_dynamic_thread_count(workload_type="cpu"),
+        max_workers: int = 4,
         **kwargs
         ):
         self.sql_provider = sql_provider
