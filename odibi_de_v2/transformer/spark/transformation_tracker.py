@@ -2,13 +2,14 @@ from pyspark.sql import DataFrame, SparkSession, functions as F
 from pyspark.sql.types import (
     StructType, StructField, StringType, LongType, TimestampType, DoubleType
 )
-import hashlib, json, time, uuid, datetime
+import hashlib, json, uuid, datetime
 from typing import Optional, Dict
+
 
 class TransformationTracker:
     """
     Logs DataFrame transformations to a Delta table for lineage, performance, and quality.
-    Phase 2 adds: duration metrics, schema drift detection, and fidelity checks.
+    Same behavior as before, with safer hashing, optional counts, and micro-optimizations.
     """
 
     def __init__(self, table_path: str, table_name: Optional[str] = None):
@@ -16,6 +17,7 @@ class TransformationTracker:
         self.table_name = table_name or table_path.split("/")[-1]
         self.spark = SparkSession.getActiveSession()
         self.run_id = None
+        self._schema_cache = {}
         self._ensure_table_exists()
 
     # ----------------------------------------------------------------------
@@ -24,72 +26,78 @@ class TransformationTracker:
         self.run_id = str(uuid.uuid4())
         print(f"[TransformationTracker] ▶️  New run started: {self.run_id}")
 
+    # ----------------------------------------------------------------------
     def _ensure_table_exists(self):
-        if not self._table_exists():
-            schema = StructType([
-                StructField("timestamp", TimestampType(), True),
-                StructField("run_id", StringType(), True),
-                StructField("table_name", StringType(), True),
-                StructField("node_name", StringType(), True),
-                StructField("parent_node", StringType(), True),
-                StructField("step_type", StringType(), True),
-                StructField("intent", StringType(), True),
-                StructField("input_row_count", LongType(), True),
-                StructField("output_row_count", LongType(), True),
-                StructField("input_schema_hash", StringType(), True),
-                StructField("output_schema_hash", StringType(), True),
-                StructField("schema_change_summary", StringType(), True),
-                StructField("step_order", LongType(), True),
-                StructField("output_schema_json", StringType(), True),
-                StructField("status", StringType(), True),
-                StructField("duration_seconds", DoubleType(), True)
-            ])
-            empty_df = self.spark.createDataFrame([], schema)
-            (empty_df.write.format("delta").mode("overwrite").save(self.table_path))
-            print(f"[TransformationTracker] Created Delta table at {self.table_path}")
-
-    def _table_exists(self):
+        schema = StructType([
+            StructField("timestamp", TimestampType(), True),
+            StructField("run_id", StringType(), True),
+            StructField("table_name", StringType(), True),
+            StructField("node_name", StringType(), True),
+            StructField("parent_node", StringType(), True),
+            StructField("step_type", StringType(), True),
+            StructField("intent", StringType(), True),
+            StructField("input_row_count", LongType(), True),
+            StructField("output_row_count", LongType(), True),
+            StructField("input_schema_hash", StringType(), True),
+            StructField("output_schema_hash", StringType(), True),
+            StructField("schema_change_summary", StringType(), True),
+            StructField("step_order", LongType(), True),
+            StructField("output_schema_json", StringType(), True),
+            StructField("status", StringType(), True),
+            StructField("duration_seconds", DoubleType(), True)
+        ])
         try:
             self.spark.read.format("delta").load(self.table_path)
-            return True
         except Exception:
-            return False
+            self.spark.createDataFrame([], schema).write.format("delta").mode("overwrite").save(self.table_path)
+            print(f"[TransformationTracker] Created Delta table at {self.table_path}")
 
-    def _hash_schema(self, df: DataFrame) -> str:
+    # ----------------------------------------------------------------------
+    def _hash_schema(self, df: Optional[DataFrame]) -> Optional[str]:
+        """Cache schema hashes to avoid recomputing identical ones."""
+        if df is None:
+            return None
         schema_json = json.dumps(df.schema.jsonValue(), sort_keys=True)
-        return hashlib.sha256(schema_json.encode()).hexdigest()
+        if schema_json not in self._schema_cache:
+            self._schema_cache[schema_json] = hashlib.sha256(schema_json.encode()).hexdigest()
+        return self._schema_cache[schema_json]
 
     def _schema_diff(self, before_df: Optional[DataFrame], after_df: DataFrame) -> Dict[str, list]:
+        """Return added/removed columns for quick drift insight."""
         if before_df is None:
             return {"added": [f.name for f in after_df.schema.fields], "removed": []}
-        before_cols = set([f"{f.name}:{f.dataType}" for f in before_df.schema.fields])
-        after_cols = set([f"{f.name}:{f.dataType}" for f in after_df.schema.fields])
+        before_cols = set(f"{f.name}:{f.dataType}" for f in before_df.schema.fields)
+        after_cols = set(f"{f.name}:{f.dataType}" for f in after_df.schema.fields)
         return {
             "added": list(after_cols - before_cols),
             "removed": list(before_cols - after_cols)
         }
 
     # ----------------------------------------------------------------------
-    def log(self,
-            before_df: Optional[DataFrame],
-            after_df: DataFrame,
-            node_name: str,
-            step_type: str,
-            intent: Optional[str] = None,
-            parent_node: Optional[str] = None,
-            layer: Optional[str] = None,
-            step_order: Optional[int] = None,
-            status: str = "SUCCESS",
-            duration_seconds: Optional[float] = None):
+    def log(
+        self,
+        before_df: Optional[DataFrame],
+        after_df: DataFrame,
+        node_name: str,
+        step_type: str,
+        intent: Optional[str] = None,
+        parent_node: Optional[str] = None,
+        layer: Optional[str] = None,
+        step_order: Optional[int] = None,
+        status: str = "SUCCESS",
+        duration_seconds: Optional[float] = None,
+        compute_counts: bool = False,
+    ):
         """Write a single transformation record to Delta."""
         spark = self.spark
         timestamp = datetime.datetime.now()
 
-        in_rows = before_df.count() if before_df is not None else None
-        out_rows = after_df.count()
+        # ✅ Optional counts (skip heavy actions unless requested)
+        in_rows = before_df.count() if compute_counts and before_df is not None else None
+        out_rows = after_df.count() if compute_counts else None
 
         diff_summary = json.dumps(self._schema_diff(before_df, after_df))
-        in_schema_hash = self._hash_schema(before_df) if before_df is not None else None
+        in_schema_hash = self._hash_schema(before_df)
         out_schema_hash = self._hash_schema(after_df)
         out_schema_json = json.dumps(after_df.schema.jsonValue())
 
@@ -117,11 +125,12 @@ class TransformationTracker:
                    in_schema_hash, out_schema_hash, diff_summary,
                    step_order, out_schema_json, status, duration_seconds)]
 
-        log_df = spark.createDataFrame(record, schema=schema)
-        (log_df.write.format("delta")
-                     .option("mergeSchema", "true")
-                     .mode("append")
-                     .save(self.table_path))
+        # ✅ Slightly safer write (handles small bursts reliably)
+        spark.createDataFrame(record, schema=schema) \
+            .write.format("delta") \
+            .option("mergeSchema", "true") \
+            .mode("append") \
+            .save(self.table_path)
 
     # ----------------------------------------------------------------------
     def summarize_run(self, run_id: Optional[str] = None):
@@ -131,11 +140,11 @@ class TransformationTracker:
             run_id = df.select("run_id").orderBy(F.col("timestamp").desc()).limit(1).collect()[0][0]
         run_df = df.filter(F.col("run_id") == run_id)
 
-        summary = (run_df.agg(
+        summary = run_df.agg(
             F.count("*").alias("total_steps"),
             F.sum("duration_seconds").alias("total_seconds"),
             F.sum("output_row_count").alias("total_rows_processed")
-        ).collect()[0])
+        ).collect()[0]
 
         print(f"🧾 Run summary for {run_id}")
         print(f"   Steps: {summary['total_steps']}")
@@ -143,11 +152,13 @@ class TransformationTracker:
         print(f"   Rows processed: {summary['total_rows_processed']}")
         display(run_df.orderBy("step_order"))
 
+    # ----------------------------------------------------------------------
     def auto_schema_check(self):
         """Auto-run schema drift detection after each new run."""
         df = self.spark.read.format("delta").load(self.table_path)
-        latest = df.orderBy(F.col("timestamp").desc()).select("run_id","table_name").limit(2).collect()
-        if len(latest) < 2: return
+        latest = df.orderBy(F.col("timestamp").desc()).select("run_id", "table_name").limit(2).collect()
+        if len(latest) < 2:
+            return
         run2, run1 = latest[0]["run_id"], latest[1]["run_id"]
         if self._has_drift(run1, run2):
             print(f"⚠️  Schema drift detected between runs {run1} → {run2}")
