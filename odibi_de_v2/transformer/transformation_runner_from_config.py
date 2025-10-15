@@ -128,44 +128,72 @@ class TransformationRunnerFromConfig:
     # ----------------------------------------------------------------------
     # Core execution
     # ----------------------------------------------------------------------
-    def _run_one(self, cfg):
-        """Internal method to execute a single transformation"""
-        full_module = cfg['module']
-        func_name = cfg["function"]
-        start_time = time.time()
+    def _run_one(self, cfg, max_retries: int = 3, base_delay: float = 2.0):
+           """
+           Execute a single transformation with retry logic.
+    
+           Retries transient failures up to `max_retries` times
+           before logging a permanent failure to the run log.
+    
+           Args:
+               cfg (dict): Transformation configuration record.
+               max_retries (int): Number of times to retry on failure.
+               base_delay (float): Base delay (seconds) for exponential backoff.
+           """
+           full_module = cfg['module']
+           func_name = cfg["function"]
+           start_time = time.time()
+    
+           print(f"🚀 Running [{cfg['project']}] {cfg.get('plant') or ''} {cfg.get('asset') or ''} ({full_module}.{func_name})")
+           log_and_optionally_raise(
+               module="Transformer",
+               component="TransformationRunnerFromConfig",
+               method="_run_one",
+               message=f"🚀 Running [{cfg['project']}] {cfg.get('plant') or ''} {cfg.get('asset') or ''} ({full_module}.{func_name})",
+               level="INFO"
+           )
+    
+           self._log_start(cfg)
+    
+           attempt = 0
+           while attempt <= max_retries:
+               try:
+                   module = importlib.import_module(full_module)
+                   func = getattr(module, func_name)
+                   func(**self.kwargs)
+    
+                   # success path
+                   self._log_end(cfg, "SUCCESS", start_time)
+                   print(f"✅ Success: {full_module}.{func_name}\n")
+                   log_and_optionally_raise(
+                       module="Transformer",
+                       component="TransformationRunnerFromConfig",
+                       method="_run_one",
+                       message=f"✅ Success: {full_module}.{func_name}\n",
+                       level="INFO"
+                   )
+                   return  # exit after success
+    
+               except Exception as e:
+                   attempt += 1
+                   if attempt <= max_retries:
+                       delay = base_delay * (2 ** (attempt - 1))
+                       print(f"⚠️ Retry {attempt}/{max_retries} for {full_module}.{func_name} in {delay:.1f}s | {e}")
+                       time.sleep(delay)
+                   else:
+                       # all retries failed → log once
+                       self._log_end(cfg, "FAILED", start_time, str(e).replace("'", ""))
+                       print(f"❌ Failed after {max_retries} retries: {full_module}.{func_name} | {e}\n")
+                       log_and_optionally_raise(
+                           module="Transformer",
+                           component="TransformationRunnerFromConfig",
+                           error_type=ErrorType.TRANSFORM_ERROR,
+                           method="_run_one",
+                           message=f"❌ Failed after {max_retries} retries: {full_module}.{func_name} | {e}\n",
+                           level="ERROR"
+                       )
+                       return
 
-        print(f"🚀 Running [{cfg['project']}] {cfg.get('plant') or ''} {cfg.get('asset') or ''} ({full_module}.{func_name})")
-        log_and_optionally_raise(
-            module="Transformer",
-            component="TransformationRunnerFromConfig",
-            method="_run_one",
-            message=f"🚀 Running [{cfg['project']}] {cfg.get('plant') or ''} {cfg.get('asset') or ''} ({full_module}.{func_name})",
-            level="INFO"
-        )
-        try:
-            self._log_start(cfg)
-            module = importlib.import_module(full_module)
-            func = getattr(module, func_name)
-            func(**self.kwargs)  # or func(self.spark, **cfg)
-            self._log_end(cfg, "SUCCESS", start_time)
-            print(f"✅ Success: {full_module}.{func_name}\n")
-            log_and_optionally_raise(
-                module="Transformer",
-                component="TransformationRunnerFromConfig",
-                method="_run_one",
-                message=f"✅ Success: {full_module}.{func_name}\n",
-                level="INFO"
-            )
-        except Exception as e:
-            self._log_end(cfg, "FAILED", start_time, str(e).replace("'", ""))
-            print(f"❌ Failed: {full_module}.{func_name} | {e}\n")
-            log_and_optionally_raise(
-                module="Transformer",
-                component="TransformationRunnerFromConfig",
-                error_type=ErrorType.TRANSFORM_ERROR,
-                method="_run_one",
-                message=f"❌ Failed: {full_module}.{func_name} | {e}\n",
-                level="ERROR")
 
     def run_all(self):
         """Runs all transformations sequentially"""
