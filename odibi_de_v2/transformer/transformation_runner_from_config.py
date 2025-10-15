@@ -22,6 +22,7 @@ class TransformationRunnerFromConfig:
         env: str = "qat",
         log_level: str = "ERROR",
         max_workers: int = 4,
+        layer: str = 'Silver',
         **kwargs
         ):
         self.sql_provider = sql_provider
@@ -34,6 +35,7 @@ class TransformationRunnerFromConfig:
         self.spark.sql("CREATE SCHEMA IF NOT EXISTS config_driven")
         self.logger=get_logger()
         self.logger.set_log_level(log_level)
+        self.layer = layer
         self.kwargs = kwargs
 
 
@@ -46,6 +48,7 @@ class TransformationRunnerFromConfig:
             *
         FROM TransformationConfig
         WHERE project = '{self.project}' AND enabled = 1 AND env = '{self.env}'
+            AND layer = '{self.layer}'
         """
         source_target = self.sql_provider.read(
             data_type=DataType.SQL,
