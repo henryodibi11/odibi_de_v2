@@ -191,6 +191,7 @@ class SparkWorkflowNode(IDataTransformer):
 
         tracker = kwargs.get("tracker", self.tracker)
         parent_node = kwargs.get("parent_node")
+        compute_counts = kwargs.get("compute_counts", False)
 
         if tracker:
             tracker.new_run()
@@ -257,7 +258,8 @@ class SparkWorkflowNode(IDataTransformer):
                             intent=intent,
                             parent_node=parent_node,
                             step_order=step_counter,
-                            duration_seconds=duration)
+                            duration_seconds=duration,
+                            compute_counts=compute_counts)
 
         if self.register_view and df is not None:
             df.createOrReplaceTempView(self.view_name)
