@@ -8,6 +8,8 @@ from pyspark.sql.utils import AnalysisException
 from odibi_de_v2.logger import get_logger, log_and_optionally_raise
 from odibi_de_v2.core import DataType,ErrorType
 from odibi_de_v2.utils import get_dynamic_thread_count
+import os
+
 
 class TransformationRunnerFromConfig:
     """
@@ -21,7 +23,7 @@ class TransformationRunnerFromConfig:
         project: str,
         env: str = "qat",
         log_level: str = "ERROR",
-        max_workers: int = 4,
+        max_workers: int = min(32, (os.cpu_count() or 1) + 4),
         layer: str = 'Silver',
         **kwargs
         ):
