@@ -5,6 +5,7 @@ from pyspark.sql.types import (
 )
 import hashlib, json, uuid, datetime
 from typing import Optional, Dict
+from odibi_de_v2.logger import log_and_optionally_raise
 
 
 class TransformationTracker:
@@ -18,6 +19,7 @@ class TransformationTracker:
         table_path: str,
         table_name: Optional[str] = None,
         database: Optional[str] = None,
+        project: Optional[str] = None,
         auto_register: bool = True
     ):
         """
@@ -25,11 +27,13 @@ class TransformationTracker:
             table_path (str): Delta table storage path (ADLS path).
             table_name (str): Logical name to register in the metastore.
             database (str): Database name to register under (optional but recommended).
+            project (str): Project name to register under (optional but recommended).
             auto_register (bool): Whether to register in the metastore automatically.
         """
         self.table_path = table_path
-        self.table_name = table_name or table_path.split("/")[-1]
+        self.table_name = table_name
         self.database = database
+        self.project = project
         self.auto_register = auto_register
 
         self.spark = SparkSession.getActiveSession()
@@ -42,8 +46,15 @@ class TransformationTracker:
     def new_run(self):
         """Generate a new run_id each workflow execution."""
         self.run_id = str(uuid.uuid4())
-        print(f"[TransformationTracker] ▶️  New run started: {self.run_id}")
-
+        msg = f"[TransformationTracker] ▶️  New run started: {self.run_id}"
+        print(msg)
+        log_and_optionally_raise(
+            module="Transformer",
+            component="TransformationTracker",
+            method="new_run",
+            message=msg,
+            level="INFO"
+        )
     # ----------------------------------------------------------------------
     def _ensure_table_exists(self):
         """Ensure the Delta table exists and is registered if requested."""
@@ -70,8 +81,14 @@ class TransformationTracker:
             self.spark.read.format("delta").load(self.table_path)
         except Exception:
             self.spark.createDataFrame([], schema).write.format("delta").mode("overwrite").save(self.table_path)
-            print(f"[TransformationTracker] ✅ Created Delta table at {self.table_path}")
-
+            msg = f"[TransformationTracker] ✅ Created Delta table at {self.table_path}"
+            log_and_optionally_raise(
+                module="Transformer",
+                component="TransformationTracker",
+                method="_ensure_table_exists",
+                message=msg,
+                level="INFO"
+            )
         # Auto-register for SQL querying
         if self.auto_register and self.database:
             try:
@@ -80,14 +97,28 @@ class TransformationTracker:
                     table_or_path=self.table_path,
                     is_path=True
                 )
+                table_name=f"{self.project}_{self.table_name}".strip().lower().replace(" ", "_")
                 dtm.register_table(
-                    table_name=self.table_name,
+                    table_name=table_name,
                     database=self.database
                 )
-                print(f"[TransformationTracker] 📘 Registered table as {self.database}.{self.table_name}")
+                msg = f"[TransformationTracker] 📘 Registered table as {self.database}.{table_name}"
+                log_and_optionally_raise(
+                    module="Transformer",
+                    component="TransformationTracker",
+                    method="_ensure_table_exists",
+                    message=msg,
+                    level="INFO"
+                )
             except Exception as e:
-                print(f"[TransformationTracker] ⚠️ Failed to register table: {e}")
-
+                msg = f"[TransformationTracker] ⚠️ Failed to register table: {e}"
+                log_and_optionally_raise(
+                    module="Transformer",
+                    component="TransformationTracker",
+                    method="_ensure_table_exists",
+                    message=msg,
+                    level="ERROR"
+                )
     # ----------------------------------------------------------------------
     def _hash_schema(self, df: Optional[DataFrame]) -> Optional[str]:
         """Cache schema hashes to avoid recomputing identical ones."""
@@ -182,10 +213,20 @@ class TransformationTracker:
             F.sum("output_row_count").alias("total_rows_processed")
         ).collect()[0]
 
-        print(f"🧾 Run summary for {run_id}")
-        print(f"   Steps: {summary['total_steps']}")
-        print(f"   Duration: {summary['total_seconds']:.2f}s")
-        print(f"   Rows processed: {summary['total_rows_processed']}")
+        msg = (
+            f"🧾 Run summary for {run_id}\n"
+            f"   Steps: {summary['total_steps']}\n"
+            f"   Duration: {summary['total_seconds']:.2f}s\n"
+            f"   Rows processed: {summary['total_rows_processed']}"
+        )
+        print(msg)
+        log_and_optionally_raise(
+            module="Transformer",
+            component="TransformationTracker",
+            method="summarize_run",
+            message=msg,
+            level="INFO"
+        )
         display(run_df.orderBy("step_order"))
 
     # ----------------------------------------------------------------------
@@ -197,10 +238,24 @@ class TransformationTracker:
             return
         run2, run1 = latest[0]["run_id"], latest[1]["run_id"]
         if self._has_drift(run1, run2):
-            print(f"⚠️  Schema drift detected between runs {run1} → {run2}")
+            msg = f"⚠️  Schema drift detected between runs {run1} → {run2}"
+            log_and_optionally_raise(
+                module="Transformer",
+                component="TransformationTracker",
+                method="auto_schema_check",
+                message=msg,
+                level="INFO"
+            )
         else:
-            print(f"✅ No schema drift between runs {run1} and {run2}")
-
+            msg = f"✅ No schema drift between runs {run1} and {run2}"
+            print(msg)
+            log_and_optionally_raise(
+                module="Transformer",
+                component="TransformationTracker",
+                method="auto_schema_check",
+                message=msg,
+                level="INFO"
+            )
     def _has_drift(self, run1: str, run2: str) -> bool:
         df = self.spark.read.format("delta").load(self.table_path)
         df1 = df.filter(F.col("run_id") == run1)
@@ -217,12 +272,29 @@ class TransformationTracker:
         run_df = df.filter(F.col("run_id") == run_id).orderBy("step_order")
         rows = run_df.select("step_order", "node_name", "output_row_count").collect()
 
-        print(f"🔍 Fidelity check for run {run_id}")
+        msg = f"🔍 Fidelity check for run {run_id}"
+        print(msg)
+        log_and_optionally_raise(
+            module="Transformer",
+            component="TransformationTracker",
+            method="auto_schema_check",
+            message=msg,
+            level="INFO"
+        )
         for i in range(1, len(rows)):
             prev, curr = rows[i - 1], rows[i]
             if prev.output_row_count and curr.output_row_count:
                 delta = curr.output_row_count - prev.output_row_count
                 pct = delta / max(prev.output_row_count, 1)
                 flag = "⚠️" if abs(pct) > threshold else "✅"
-                print(f" {flag} Step {curr.step_order}: {prev.output_row_count} → {curr.output_row_count} "
-                      f"({pct*100:.1f}%)")
+                msg = (
+                    f" {flag} Step {curr.step_order}: {prev.output_row_count} → {curr.output_row_count} \n"
+                    f"({pct*100:.1f}%)")
+                print(msg)
+                log_and_optionally_raise(
+                    module="Transformer",
+                    component="TransformationTracker",
+                    method="auto_schema_check",
+                    message=msg,
+                    level="INFO"
+                )
