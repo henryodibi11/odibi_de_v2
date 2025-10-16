@@ -5,6 +5,7 @@ from odibi_de_v2.core.enums import ErrorType
 from odibi_de_v2.logger import log_exceptions
 from typing import Optional
 from odibi_de_v2.core import Framework, BaseConnection
+import posixpath
 
 
 class AzureBlobConnection(BaseConnection):
@@ -73,50 +74,46 @@ class AzureBlobConnection(BaseConnection):
         """
         Construct a framework-specific ABFS path to an Azure Blob file.
 
-        Args:
-            container (str): Azure Blob container name (e.g., "bronze").
-            path_prefix (str): Folder or directory path inside the container.
-            object_name (str): Name of the file or blob.
-
-        Returns:
-            str: Fully qualified path formatted for the specified engine.
+        Automatically normalizes slashes, so both
+        `object_name='file.csv'` and `object_name='/file.csv'`
+        work without producing double slashes.
         """
-        blob_path = f"{path_prefix}{object_name}"
+        # ✅ Normalize leading/trailing slashes
+        normalized_prefix = path_prefix.strip("/")
+        normalized_object = object_name.strip("/")
+        blob_path = posixpath.join(normalized_prefix, normalized_object)
+
         log_and_optionally_raise(
             module="CONNECTOR",
             component="AzureBlobConnector",
             method="get_file_path",
             error_type=ErrorType.NO_ERROR,
-            message="Attempting to resolve file path...",
+            message=f"Attempting to resolve file path for {blob_path}...",
             level="INFO")
+
         match self.framework:
             case Framework.SPARK:
                 file_path = (
-                    f"abfss://{container}@{self.account_name}."
-                    f"dfs.core.windows.net/{blob_path}")
-                log_and_optionally_raise(
-                    module="CONNECTOR",
-                    component="AzureBlobConnector",
-                    method="get_file_path",
-                    error_type=ErrorType.NO_ERROR,
-                    message=f"Successfully resolved Spark file path: {file_path}",
-                    level="INFO")
-                return file_path
-
+                    f"abfss://{container}@{self.account_name}.dfs.core.windows.net/"
+                    f"{blob_path}"
+                )
             case Framework.PANDAS:
                 file_path = f"abfs://{container}/{blob_path}"
-                log_and_optionally_raise(
-                    module="CONNECTOR",
-                    component="AzureBlobConnector",
-                    method="get_file_path",
-                    error_type=ErrorType.NO_ERROR,
-                    message=f"Successfully resolved Pandas file path: {file_path}",
-                    level="INFO")
-                return file_path
-
             case _:
                 raise NotImplementedError(
-                    f"AzureBlobConnection does not support framework: {self.framework}")
+                    f"AzureBlobConnection does not support framework: {self.framework}"
+                )
+
+        log_and_optionally_raise(
+            module="CONNECTOR",
+            component="AzureBlobConnector",
+            method="get_file_path",
+            error_type=ErrorType.NO_ERROR,
+            message=f"Resolved file path: {file_path}",
+            level="INFO")
+
+        return file_path
+
 
 
     @log_call(module="CONNECTOR", component="AzureBlobConnection")
