@@ -138,7 +138,7 @@ def validate_method_exists(obj: Any, method_name: str, context: str) -> None:
             method=context,
             error_type=ErrorType.NO_ERROR,
             message=msg,
-            level="warning",
+            level="INFO",
             raise_exception=False)
 
 def validate_kwargs_match_signature(
