@@ -144,7 +144,7 @@ class SQLDatabaseConnection(BaseConnection):
                 "Attempting to resolve query..."
                 "only object name is used for SQL-based ingestion."
                 "All other arguments are ignored"),
-            level="WARNING")
+            level="INFO")
         table_or_query = object_name
         log_and_optionally_raise(
             module="CONNECTOR",
