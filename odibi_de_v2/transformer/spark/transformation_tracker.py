@@ -1,3 +1,4 @@
+from odibi_de_v2.databricks import DeltaTableManager
 from pyspark.sql import DataFrame, SparkSession, functions as F
 from pyspark.sql.types import (
     StructType, StructField, StringType, LongType, TimestampType, DoubleType
@@ -12,12 +13,29 @@ class TransformationTracker:
     Same behavior as before, with safer hashing, optional counts, and micro-optimizations.
     """
 
-    def __init__(self, table_path: str, table_name: Optional[str] = None):
+    def __init__(
+        self,
+        table_path: str,
+        table_name: Optional[str] = None,
+        database: Optional[str] = None,
+        auto_register: bool = True
+    ):
+        """
+        Args:
+            table_path (str): Delta table storage path (ADLS path).
+            table_name (str): Logical name to register in the metastore.
+            database (str): Database name to register under (optional but recommended).
+            auto_register (bool): Whether to register in the metastore automatically.
+        """
         self.table_path = table_path
         self.table_name = table_name or table_path.split("/")[-1]
+        self.database = database
+        self.auto_register = auto_register
+
         self.spark = SparkSession.getActiveSession()
         self.run_id = None
         self._schema_cache = {}
+
         self._ensure_table_exists()
 
     # ----------------------------------------------------------------------
@@ -28,6 +46,7 @@ class TransformationTracker:
 
     # ----------------------------------------------------------------------
     def _ensure_table_exists(self):
+        """Ensure the Delta table exists and is registered if requested."""
         schema = StructType([
             StructField("timestamp", TimestampType(), True),
             StructField("run_id", StringType(), True),
@@ -46,11 +65,28 @@ class TransformationTracker:
             StructField("status", StringType(), True),
             StructField("duration_seconds", DoubleType(), True)
         ])
+
         try:
             self.spark.read.format("delta").load(self.table_path)
         except Exception:
             self.spark.createDataFrame([], schema).write.format("delta").mode("overwrite").save(self.table_path)
-            print(f"[TransformationTracker] Created Delta table at {self.table_path}")
+            print(f"[TransformationTracker] ✅ Created Delta table at {self.table_path}")
+
+        # Auto-register for SQL querying
+        if self.auto_register and self.database:
+            try:
+                dtm = DeltaTableManager(
+                    spark=self.spark,
+                    table_or_path=self.table_path,
+                    is_path=True
+                )
+                dtm.register_table(
+                    table_name=self.table_name,
+                    database=self.database
+                )
+                print(f"[TransformationTracker] 📘 Registered table as {self.database}.{self.table_name}")
+            except Exception as e:
+                print(f"[TransformationTracker] ⚠️ Failed to register table: {e}")
 
     # ----------------------------------------------------------------------
     def _hash_schema(self, df: Optional[DataFrame]) -> Optional[str]:
