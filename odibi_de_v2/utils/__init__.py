@@ -78,6 +78,8 @@ from .safe_globals import SAFE_GLOBALS
 from .get_columns import get_columns_by_type
 from .init_utils import generate_recursive_inits
 from .threading import get_dynamic_thread_count
+from .view_naming import scoped_temp_view_name
+
 
 __all__ = [
     # excel ingestion
@@ -159,5 +161,8 @@ __all__ = [
 
     # Threading
     "get_dynamic_thread_count",
+
+    # View naming
+    "scoped_temp_view_name",
 
 ]
