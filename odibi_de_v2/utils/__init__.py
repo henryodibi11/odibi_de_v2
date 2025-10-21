@@ -79,7 +79,7 @@ from .get_columns import get_columns_by_type
 from .init_utils import generate_recursive_inits
 from .threading import get_dynamic_thread_count
 from .view_naming import scoped_temp_view_name
-
+from .generate_transformation_story import generate_transformation_story
 
 __all__ = [
     # excel ingestion
@@ -164,5 +164,8 @@ __all__ = [
 
     # View naming
     "scoped_temp_view_name",
+    
+    # Generate Transformation Story
+    "generate_transformation_story",
 
 ]
