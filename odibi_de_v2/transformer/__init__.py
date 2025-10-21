@@ -35,6 +35,12 @@ from .sql_generator_from_config import SQLGeneratorFromConfig
 from .transformer_from_config import TransformerFromConfig
 from .transformer_orchestrator import TransformerOrchestrator
 from .transformation_runner_from_config import TransformationRunnerFromConfig
+from .visualization import (
+    TransformationStory,
+    SparkWorkflowNodePlayback
+)
+
+
 
 __all__ = [
     # Spark
@@ -85,4 +91,7 @@ __all__ = [
     "TransformerFromConfig",
     "TransformerOrchestrator",
     "TransformationRunnerFromConfig",
+    # Visualization
+    "TransformationStory",
+    "SparkWorkflowNodePlayback",
 ]
