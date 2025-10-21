@@ -26,7 +26,8 @@ setup(
         "tqdm",
         "sqlalchemy",
         "sqlparse",
-        "markdown"
+        "markdown",
+        "markdown2"
     ],
     author="Henry Odibi",
     author_email="odibiengineering@gmail.com",
