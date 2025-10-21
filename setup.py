@@ -25,7 +25,8 @@ setup(
         "mypy",
         "tqdm",
         "sqlalchemy",
-        "sqlparse"
+        "sqlparse",
+        "markdown"
     ],
     author="Henry Odibi",
     author_email="odibiengineering@gmail.com",
