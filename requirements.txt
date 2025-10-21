@@ -13,6 +13,7 @@ ipywidgets
 databricks-sdk
 psychrolib
 adlfs
+markdown
 
 # Optional: add dev tools at the bottom
 pytest
