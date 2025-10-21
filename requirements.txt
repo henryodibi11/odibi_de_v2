@@ -14,6 +14,7 @@ databricks-sdk
 psychrolib
 adlfs
 markdown
+markdown2
 
 # Optional: add dev tools at the bottom
 pytest
