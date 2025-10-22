@@ -18,7 +18,7 @@ class BaseProjectOrchestrator(ABC):
     def __init__(self, project: str, env: str = "qat", log_level: str = "INFO"):
         self.project = project
         self.env = env
-        self.logger = get_logger(project, level=log_level)
+        self.logger = get_logger()
 
     # --- Required lifecycle hooks ---
     @abstractmethod
