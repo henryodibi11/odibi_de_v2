@@ -41,6 +41,8 @@ from .storage import (
     get_function_registry)
 
 from .workflows import run_bronze_pipeline
+from .orchestration import BaseProjectOrchestrator
+
 
 __all__=[
     "init_spark_with_azure_secrets",
@@ -71,5 +73,6 @@ __all__=[
     "log_to_centralized_table",
     "run_notebook_with_logging",
     "run_bronze_pipeline",
-    "DatabaseManager"
+    "DatabaseManager",
+    "BaseProjectOrchestrator"
 ]
