@@ -100,12 +100,12 @@ def wrap_read_errors(component: str):
 
             except Py4JJavaError as e:
                 msg = f"Spark read error while reading {data_type.value.upper()} file: {str(e.java_exception)}"
-                log_and_optionally_raise("INGESTION", component, method_name, ErrorType.RUNTIME_ERROR, msg, "ERROR")
+                log_and_optionally_raise("INGESTION", component, method_name, ErrorType.Runtime_Error, msg, "ERROR")
                 raise RuntimeError(msg) from e
 
             except Exception as e:
                 msg = f"Unexpected error while reading {data_type.value.upper()} file: {file_path}\n{e}"
-                log_and_optionally_raise("INGESTION", component, method_name, ErrorType.RUNTIME_ERROR, msg, "ERROR")
+                log_and_optionally_raise("INGESTION", component, method_name, ErrorType.Runtime_Error, msg, "ERROR")
                 raise RuntimeError(msg) from e
 
         return wrapper
