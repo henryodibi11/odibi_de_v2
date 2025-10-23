@@ -1,92 +1,197 @@
+"""
+odibi_de_v2.databricks.config.option_resolvers
+----------------------------------------------
+
+This module contains resolver classes that normalize and sanitize the `source_options`
+and `target_options` blocks within ingestion and transformation configurations.
+
+These resolvers interpret the configuration structure stored in SQL tables such as
+`IngestionSourceConfig` and `TransformationConfig`, ensuring a consistent, engine-agnostic
+metadata schema for Spark operations.
+
+They guarantee that both source and target configurations follow the canonical structure:
+
+Source JSON (default schema in SQL):
+------------------------------------
+{
+    "engine": "databricks",
+    "databricks": {
+        "batch": {
+            "options": {},
+            "format": "",
+            "schema": ""
+        },
+        "streaming": {
+            "options": {},
+            "format": "",
+            "schema": ""
+        }
+    }
+}
+
+Target JSON (default schema in SQL):
+------------------------------------
+{
+    "engine": "databricks",
+    "databricks": {
+        "method": "",
+        "batch": {
+            "bucketBy": [],
+            "format": "",
+            "insertInto": "",
+            "mode": "overwrite",
+            "options": {
+                "delta.columnMapping.mode": "name",
+                "overwriteSchema": "true"
+            },
+            "partitionBy": [],
+            "sortBy": []
+        },
+        "streaming": {
+            "foreach": "",
+            "foreachBatch": "",
+            "format": "",
+            "options": {},
+            "outputMode": "",
+            "partitionBy": [],
+            "queryName": "",
+            "trigger": {}
+        }
+    }
+}
+
+Each resolver ensures this structure remains valid, removes any empty or null fields,
+and resolves paths or schema references when required.
+
+This uniform schema enables:
+    - Consistent read/write operations across all connectors.
+    - Metadata-driven orchestration with zero branching logic.
+    - Extensibility to future engines (e.g., AWS Glue, Synapse) with minimal changes.
+"""
+
 class SourceOptionsResolver:
     """
-    Resolves and updates source options based on the provided configuration and mode, handling schema locations
-    and sanitizing options.
+    Resolves and prepares **read options** for a data source based on the provided
+    configuration, engine, and mode.
 
-    This method processes the `source_options` from the `config` dictionary specific to the provided `engine` and
-    `mode`. It resolves file paths for schema locations using the given `connector` and removes any options that
-    are empty or unset.
+    This class is responsible for extracting the `source_options` block from the
+    configuration dictionary and cleaning it up for use by the Spark reader. It ensures
+    that every source (SQL, ADLS, Local, API, etc.) adheres to the same nested schema,
+    allowing the ingestion framework to handle all inputs uniformly.
 
-    Args:
-        None
+    **Typical Flow**
+        SparkDataReaderFromConfig
+            └── BuildConnectionFromConfig
+                    └── (Connector)
+            └── SourceOptionsResolver
+                    └── resolve() → clean dict of Spark read options
 
-    Returns:
-        dict: A dictionary of resolved and sanitized source options.
-
-    Raises:
-        KeyError: If expected keys are missing in the `config` dictionary.
-
-    Example:
-        Assuming `connector` is an instance of a Connector class with a method `get_file_path`, and `config` is
-        a dictionary containing necessary configurations:
-        resolver = SourceOptionsResolver(connector, config, 'batch')
-        resolved_options = resolver.resolve()
-        print(resolved_options)
-    """
-    def __init__(self, connector, config: dict, mode: str, engine: str = "databricks"):
-        """
-        Initializes a new instance of the class with specified configuration and operational mode.
-
-        This constructor sets up the necessary properties for the instance based on the provided connector,
-        configuration dictionary, operational mode, and optionally the processing engine. It also prepares
-        the options specific to the chosen engine and mode from the configuration.
-
-        Args:
-            connector: An object that must have a `get_file_path()` method. This connector is used to interface
-                with data sources.
-            config (dict): Configuration dictionary containing all settings, including nested dictionaries for
-                source options specific to different engines and modes.
-            mode (str): The mode of operation, which should be either 'streaming' or 'batch'. This determines
-                how data will be processed.
-            engine (str, optional): The processing engine to be used. Defaults to 'databricks'. This specifies
-                the backend technology for data processing.
-
-        Raises:
-            KeyError: If the specified `engine` or `mode` keys are not found in the `config['source_options']`.
-
-        Example:
-            >>> connector_instance = MyConnector()
-            >>> config = {
-                "source_options": {
-                    "databricks": {
-                        "streaming": {"option1": "value1"},
-                        "batch": {"option1": "value2"}
+    **Expected Config Shape**
+        The resolver expects a structure similar to what’s stored in your SQL configuration tables:
+        ```python
+        config = {
+            "source_options": {
+                "databricks": {
+                    "batch": {
+                        "options": {
+                            "header": "true",
+                            "inferSchema": "true"
+                        },
+                        "format": "csv",
+                        "schema": ""
+                    },
+                    "streaming": {
+                        "options": {
+                            "cloudFiles.format": "csv",
+                            "cloudFiles.schemaLocation": "FileStore/schemas/"
+                        },
+                        "format": "cloudFiles",
+                        "schema": ""
                     }
                 }
+            },
+            "connection_config": {
+                "storage_unit": "",
+                "object_name": "FileStore/data.csv"
             }
-            >>> instance = MyClass(connector_instance, config, "streaming")
-            >>> print(instance.options)
-            {'option1': 'value1'}
+        }
+        ```
+
+    **Behavior Summary**
+        | Step | Action |
+        |------|---------|
+        | 1️⃣ | Loads options for the specified `engine` (`databricks`) and `mode` (`batch` or `streaming`). |
+        | 2️⃣ | If present, resolves `cloudFiles.schemaLocation` using the connector’s `get_file_path()`. |
+        | 3️⃣ | Removes any keys whose values are empty (`None`, `''`, `{}`, or `[]`). |
+        | 4️⃣ | Returns the cleaned dictionary. |
+
+    **Example**
+        ```python
+        from odibi_de_v2.databricks.config.option_resolvers import SourceOptionsResolver
+        from odibi_de_v2.connector import LocalConnection
+
+        connector = LocalConnection()
+        resolver = SourceOptionsResolver(connector, config, mode="batch", engine="databricks")
+        resolved_options = resolver.resolve()
+
+        print(resolved_options)
+        # → {'options': {'header': 'true', 'inferSchema': 'true'}, 'format': 'csv'}
+        ```
+
+    **Common Errors**
+        - `KeyError: 'databricks'` → missing engine block in `source_options`.
+        - `KeyError: 'batch'` → missing mode block.
+        - `KeyError: 'storage_unit'` → missing `connection_config` details.
+    """
+
+    def __init__(self, connector, config: dict, mode: str, engine: str = "databricks"):
+        """
+        Initializes the resolver for a specific processing engine and mode.
+
+        Args:
+            connector: Connector instance with a `get_file_path()` method
+                (e.g., LocalConnection, AzureBlobConnection).
+            config (dict): Full source configuration dictionary containing nested
+                `source_options` and `connection_config`.
+            mode (str): Operational mode — either 'streaming' or 'batch'.
+            engine (str, optional): Processing engine; defaults to 'databricks'.
+
+        Raises:
+            KeyError: If the specified engine or mode keys are missing.
         """
         self.connector = connector
         self.config = config
         self.engine = engine
         self.mode = mode.lower()
         self.options = config["source_options"][self.engine][self.mode].copy()
+
     def resolve(self) -> dict:
         """
-        Resolves and updates the schema location in the options dictionary based on the configuration settings.
+        Resolves schema paths and removes empty fields from the options dictionary.
 
-        This method modifies the 'cloudFiles.schemaLocation' in the 'options' dictionary by resolving the
-        relative path to an absolute path using the storage unit defined in the configuration. It also
-        cleans up the 'options' dictionary by removing any top-level fields that are empty or set to None.
+        - If an Auto Loader schema path (`cloudFiles.schemaLocation`) exists,
+          it is resolved to an absolute path using the connector.
+        - All empty or null top-level fields are stripped out.
 
         Returns:
-            dict: The updated options dictionary with resolved schema location and without empty fields.
+            dict: Sanitized options ready for Spark `.read()` or `.readStream()`.
 
         Example:
-            Assuming the instance has been properly configured:
-            >>> resolver = Resolver(config, options, connector)
-            >>> updated_options = resolver.resolve()
-            >>> print(updated_options)
-            {'options': {'cloudFiles.schemaLocation': '/absolute/path/to/schema'}}
+            ```python
+            resolver = SourceOptionsResolver(connector, config, "streaming")
+            clean_opts = resolver.resolve()
+            # {'options': {'cloudFiles.format': 'csv',
+            #              'cloudFiles.schemaLocation': 'dbfs:/FileStore/schemas'}}
+            ```
         """
         storage_unit = self.config["connection_config"]["storage_unit"]
+
         # Resolve schema location if applicable
         schema_rel_path = self.options.get("options", {}).get("cloudFiles.schemaLocation")
         if schema_rel_path:
             resolved_path = self.connector.get_file_path(storage_unit, schema_rel_path, "")
             self.options["options"]["cloudFiles.schemaLocation"] = resolved_path
+
         # Remove blank top-level fields
         self.options = {
             k: v for k, v in self.options.items()
@@ -94,94 +199,100 @@ class SourceOptionsResolver:
         }
         return self.options
 
+
 class TargetOptionsResolver:
     """
-    Resolves and sanitizes target write options based on the provided configuration, mode, and engine.
+    Resolves and sanitizes **write options** for a target dataset based on the
+    configuration, mode, and engine.
 
-    This class processes the target configuration to extract and clean up the options relevant to the specified mode
-    (e.g., 'streaming' or 'batch') and engine (e.g., 'databricks'). It filters out any options that are `None`, empty
-    strings, empty lists, or empty dictionaries.
+    This class ensures that every target follows the same nested structure
+    used in your SQL configuration tables. It removes empty or null fields and
+    returns a ready-to-use dictionary for Spark `.write()` or `.writeStream()` calls.
 
-    Attributes:
-        config (dict): A dictionary containing the target configuration.
-        mode (str): The mode of operation, typically 'streaming' or 'batch'.
-        engine (str): The processing engine, defaults to 'databricks'.
-
-    Methods:
-        resolve(): Returns a dictionary of sanitized options for the target based on the mode and engine.
-
-    Returns:
-        dict: A dictionary containing the sanitized options for the target.
-
-    Example:
-        >>> config = {
+    **Expected Config Shape**
+        ```python
+        config = {
             "target_options": {
                 "databricks": {
+                    "method": "save",
+                    "batch": {
+                        "format": "delta",
+                        "mode": "overwrite",
+                        "options": {
+                            "delta.columnMapping.mode": "name",
+                            "overwriteSchema": "true"
+                        },
+                        "partitionBy": ["Plant", "Asset"],
+                        "sortBy": []
+                    },
                     "streaming": {
-                        "option1": "value1",
-                        "option2": "",
-                        "option3": None
+                        "format": "delta",
+                        "options": {
+                            "checkpointLocation": "FileStore/checkpoints"
+                        },
+                        "outputMode": "append"
                     }
                 }
             }
         }
-        >>> resolver = TargetOptionsResolver(config, "streaming")
-        >>> resolver.resolve()
-        {'option1': 'value1'}
+        ```
+
+    **Behavior Summary**
+        | Step | Action |
+        |------|---------|
+        | 1️⃣ | Extracts `target_options[engine][mode]`. |
+        | 2️⃣ | Removes any null, empty, or placeholder fields. |
+        | 3️⃣ | Returns a clean dict ready for Spark `.write()` or `.writeStream()`. |
+
+    **Example**
+        ```python
+        from odibi_de_v2.databricks.config.option_resolvers import TargetOptionsResolver
+
+        resolver = TargetOptionsResolver(config, mode="batch", engine="databricks")
+        resolved_options = resolver.resolve()
+
+        print(resolved_options)
+        # → {'format': 'delta', 'mode': 'overwrite', 'options': {...}, 'partitionBy': ['Plant', 'Asset']}
+        ```
+
+    **Common Errors**
+        - `KeyError: 'databricks'` → missing engine block.
+        - `KeyError: 'batch'` → mode not defined.
+        - Misaligned key names (e.g., using `target_config` instead of `target_options`).
     """
+
     def __init__(self, config: dict, mode: str, engine: str = "databricks"):
         """
-        Initializes the configuration for a specific engine and operational mode.
-
-        This constructor initializes an instance with the specified configuration, operational mode, and engine type.
-        It also extracts and stores options specific to the given engine and mode from the configuration.
+        Initializes the resolver for a given engine and operational mode.
 
         Args:
-            config (dict): A dictionary containing various settings and options, potentially nested by engine and mode.
-            mode (str): The operational mode, which could influence behavior or settings (e.g., 'test', 'production').
-            engine (str, optional): The type of engine to be used. Defaults to 'databricks'.
-
-        Attributes:
-            config (dict): Stores the provided configuration dictionary.
-            mode (str): Stores the operational mode in lowercase.
-            engine (str): Stores the type of engine being used.
-            options (dict): Extracted options specific to the provided engine and mode.
-
-        Example:
-            >>> config_dict = {
-                'target_options': {
-                    'databricks': {
-                        'test': {'option1': 'value1'},
-                        'production': {'option2': 'value2'}
-                    }
-                }
-            }
-            >>> instance = MyClass(config=config_dict, mode='Test', engine='databricks')
-            >>> print(instance.options)
-            {'option1': 'value1'}
+            config (dict): Target configuration containing nested option dictionaries.
+            mode (str): Write mode, such as 'batch' or 'streaming'.
+            engine (str, optional): Processing engine; defaults to 'databricks'.
         """
         self.config = config
         self.mode = mode.lower()
         self.engine = engine
-        self.options = config.get("target_options", {}).get(self.engine, {}).get(self.mode, {}).copy()
+        self.options = (
+            config.get("target_options", {})
+                  .get(self.engine, {})
+                  .get(self.mode, {})
+                  .copy()
+        )
+
     def resolve(self) -> dict:
         """
-        Removes null or empty values from the options dictionary of the instance.
-
-        This method filters out any key-value pairs from the instance's `options` dictionary where the value is `None`,
-        an empty string, list, or dictionary. It then updates the `options` dictionary to only include the valid,
-        non-empty items.
+        Removes null, empty, or placeholder values from the target options.
 
         Returns:
-            dict: A dictionary containing only the non-null and non-empty key-value pairs from the original `options`
-            dictionary.
+            dict: A sanitized dictionary suitable for use in Spark write operations.
 
         Example:
-            Assuming an instance `config` of a class with an `options` attribute initially set as:
-            `config.options = {'name': 'example', 'timeout': None, 'tags': [], 'settings': {}}`
-
-            After calling `config.resolve()`, the `options` attribute would be:
-            `{'name': 'example'}`
+            ```python
+            resolver = TargetOptionsResolver(config, "streaming")
+            clean_opts = resolver.resolve()
+            # {'format': 'delta', 'outputMode': 'append', 'options': {...}}
+            ```
         """
         self.options = {
             k: v for k, v in self.options.items()
