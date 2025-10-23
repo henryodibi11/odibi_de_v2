@@ -2,7 +2,8 @@ from .bootstrap import (
     init_spark_with_azure_secrets,
     init_sql_config_connection,
     load_ingestion_config_tables,
-    BuildConnectionFromConfig
+    BuildConnectionFromConfig,
+    init_local_connection
 )
 
 from .utils import (
@@ -47,6 +48,7 @@ from .orchestration import BaseProjectOrchestrator
 __all__=[
     "init_spark_with_azure_secrets",
     "init_sql_config_connection",
+    "init_local_connection",
     "get_secret",
     "load_ingestion_config_tables",
     "IngestionConfigConstructor",
