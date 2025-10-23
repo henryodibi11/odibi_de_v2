@@ -1,8 +1,6 @@
-from odibi_de_v2.databricks.bootstrap import (
-    init_spark_with_azure_secrets,
-    init_sql_config_connection,
-    init_local_connection
-)
+from odibi_de_v2.databricks.bootstrap.init_spark_with_azure_secrets import init_spark_with_azure_secrets
+from odibi_de_v2.databricks.bootstrap.init_sql_config_connection import init_sql_config_connection
+from odibi_de_v2.databricks.bootstrap.local_initializer import init_local_connection
 
 class BuildConnectionFromConfig:
     """
