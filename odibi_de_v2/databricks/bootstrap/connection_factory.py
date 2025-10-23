@@ -174,7 +174,7 @@ class BuildConnectionFromConfig:
         """
         conn_cfg = self.config.get("connection_config", {})
         base_path = conn_cfg.get("base_path", "/dbfs/FileStore")
-        _, connection = init_local_connection(
+        connection = init_local_connection(
             app_name="Local_Ingestion",
             base_path=base_path
         )
