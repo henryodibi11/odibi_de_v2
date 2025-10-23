@@ -1,5 +1,8 @@
-from odibi_de_v2.databricks.bootstrap import init_spark_with_azure_secrets, init_sql_config_connection
-
+from odibi_de_v2.databricks.bootstrap import (
+    init_spark_with_azure_secrets,
+    init_sql_config_connection,
+    init_local_connection
+)
 
 class BuildConnectionFromConfig:
     """
@@ -91,6 +94,8 @@ class BuildConnectionFromConfig:
                 return self._build_sql_connection()
             case "adls":
                 return self._build_adls_connection()
+            case "local":
+                return self._build_local_connection()
             case _:
                 raise Exception(f"Unsupported platform: {self.platform}")
 
@@ -158,5 +163,19 @@ class BuildConnectionFromConfig:
                 "table": cfg.get(self.name_field),
                 "step": "INGESTION"
             }
+        )
+        return connection
+
+    def _build_local_connection(self):
+        """
+        Builds and returns a LocalConnection for file-based ingestion.
+
+        This allows ingestion of CSV, JSON, or Delta files stored locally or in DBFS.
+        """
+        conn_cfg = self.config.get("connection_config", {})
+        base_path = conn_cfg.get("base_path", "/dbfs/FileStore")
+        _, connection = init_local_connection(
+            app_name="Local_Ingestion",
+            base_path=base_path
         )
         return connection
