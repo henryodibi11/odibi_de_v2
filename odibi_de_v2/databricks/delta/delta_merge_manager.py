@@ -107,7 +107,7 @@ class DeltaMergeManager:
             return f"`{col_name}`"
         return col_name
 
-    @log_call(module="DELTA", component="DeltaMergeManager")
+    @log_call(module="DATABRICKS", component="DeltaMergeManager")
     def merge(self, source_df: DataFrame, merge_keys: List[str], change_columns: List[str]) -> None:
         """
         Perform an idempotent Delta MERGE based on hash-based change detection.
