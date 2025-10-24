@@ -49,6 +49,46 @@ Note:
     - Batch saves delegate to SaverProvider (default Delta).
     - Streaming saves can wrap registered handlers dynamically using the function registry.
     - All saves automatically add ingestion metadata.
+
+🔄 Custom Registry Packages
+----------------------------
+If you want to use your own project-specific savers instead of the default registry,
+you can point the saver to a new package at runtime:
+
+    >>> from odibi_de_v2.databricks.storage.function_registry import set_registry_package
+    >>> # Use a custom saver registry
+    >>> set_registry_package("my_project.storage")
+
+Any function in that package beginning with `save_` or `merge_` will be automatically discovered
+and callable from config using its name (e.g., `"method": "save_custom_gold_table"`).
+
+⚙️ Method-based Delegation Example
+----------------------------------
+You can also call existing framework savers (like `save_static_data_from_config`) directly via config.
+The saver will handle the connection and mode automatically.
+
+    >>> from odibi_de_v2.databricks.storage.spark_data_saver_from_config import SparkDataSaverFromConfig
+
+    >>> config = {
+    ...     "connection_config": {
+    ...         "storage_unit": "silver",
+    ...         "object_name": "processed/energy_data"
+    ...     },
+    ...     "target_path_or_table": "qat_energy.silver_energy_data",
+    ...     "target_options": {
+    ...         "databricks": {
+    ...             "method": "save_static_data_from_config"
+    ...         }
+    ...     }
+    ... }
+
+    >>> saver = SparkDataSaverFromConfig(spark, config, connector)
+    >>> saver.save(df)
+
+This will:
+    • Dynamically resolve `save_static_data_from_config` from the registry
+    • Use your current `connection_config` for container and path resolution
+    • Apply the overwrite mode automatically (as defined in that saver’s logic)
 """
 
 import copy
