@@ -119,7 +119,7 @@ class SparkDataSaverFromConfig:
         self.data_type = DataType(config.get("file_format", "delta"))
         self.function_registry = get_function_registry()
 
-    @log_call
+    @log_call(module="DATABRICKS", component="SparkDataSaverFromConfig")
     def save(self, df: DataFrame):
         """Route to batch or streaming save based on DataFrame type."""
         if df.isStreaming:
@@ -127,7 +127,7 @@ class SparkDataSaverFromConfig:
         else:
             self._save_batch(df)
 
-    @log_call
+    @log_call(module="DATABRICKS", component="SparkDataSaverFromConfig")
     def _save_batch(self, df: DataFrame):
         """Saves batch DataFrames using SaverProvider or registry-defined methods."""
         method_name = (
@@ -163,7 +163,7 @@ class SparkDataSaverFromConfig:
             database=database,
         )
 
-    @log_call
+    @log_call(module="DATABRICKS", component="SparkDataSaverFromConfig")
     def _save_stream(self, df: DataFrame):
         """Saves streaming DataFrames using checkpointing and optional foreachBatch handlers."""
         options = TargetOptionsResolver(self.config, mode="streaming").resolve()
