@@ -17,7 +17,8 @@ def run_bronze_pipeline(
     spark_config: dict = {},
     send_email: bool = False,
     email_to: str = None,
-    logic_app_url: str = None
+    logic_app_url: str = None,
+    config_environment = "qat"
 ) -> List[Dict]:
     """
     Executes the full Bronze layer pipeline: ingestion from source, optional validation,
@@ -48,6 +49,7 @@ def run_bronze_pipeline(
         send_email (bool, optional): Whether to send email notifications on failure. Defaults to False.
         email_to (str, optional): Comma-separated list of recipients.
         logic_app_url (str, optional): Logic App URL for triggering email sends.
+        config_environment (str): Environment to select config from
 
     Returns:
         List[Dict]: Structured list of log entries from the logger.
@@ -108,7 +110,8 @@ def run_bronze_pipeline(
             project=project,
             source_id=source_id,
             target_id=target_id,
-            spark=spark)
+            spark=spark,
+            environment=config_environment)
 
         constructor = IngestionConfigConstructor(source_df, target_df)
         source_config, target_config = constructor.prepare()
