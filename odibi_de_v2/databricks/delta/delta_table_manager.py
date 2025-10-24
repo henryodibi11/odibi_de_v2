@@ -142,23 +142,23 @@ class DeltaTableManager:
         return self.delta_table
 
     # ---------- Metadata ----------
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def describe_detail(self) -> DataFrame:
         """Return Delta detail() as a Spark DataFrame."""
         return self._load_delta_table().detail()
 
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def describe_history(self) -> DataFrame:
         """Return full Delta history() as a Spark DataFrame."""
         return self._load_delta_table().history()
 
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def show_history(self, limit: int = 10) -> DataFrame:
         """Return the most recent `limit` rows of Delta history()."""
         return self._load_delta_table().history(limit)
 
     # ---------- Versioning ----------
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def time_travel(self, version: Optional[int] = None, timestamp: Optional[str] = None) -> DataFrame:
         """Read the table at a past version or timestamp."""
         reader = self.spark.read.format("delta")
@@ -168,19 +168,19 @@ class DeltaTableManager:
             reader = reader.option("timestampAsOf", timestamp)
         return reader.load(self.table_or_path) if self.is_path else reader.table(self.table_or_path)
 
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def get_latest_version(self) -> int:
         """Return the latest committed version number."""
         history = self.show_history(1)
         return history.collect()[0]["version"]
 
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def restore_version(self, version: int):
         """Restore table to a specific version using SQL RESTORE."""
         self.spark.sql(f"RESTORE TABLE {self.table_or_path} TO VERSION AS OF {version}")
 
     # ---------- Maintenance ----------
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def optimize(self, zorder_by: Optional[List[str]] = None):
         """Run OPTIMIZE (optionally ZORDER BY the provided columns)."""
         sql = f"OPTIMIZE {self.table_or_path}"
@@ -189,13 +189,13 @@ class DeltaTableManager:
             sql += f" ZORDER BY ({cols})"
         self.spark.sql(sql)
 
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def vacuum(self, retention_hours: int = 168, dry_run: bool = False):
         """Run VACUUM with an optional DRY RUN; retention_hours affects time travel window."""
         dry = " DRY RUN" if dry_run else ""
         self.spark.sql(f"VACUUM {self.table_or_path} RETAIN {retention_hours} HOURS{dry}")
 
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def register_table(self, table_name: str, database: Optional[str] = None):
         """Register a path-based table in the metastore (requires is_path=True)."""
         if not self.is_path:
@@ -208,14 +208,14 @@ class DeltaTableManager:
         """)
 
     # ---------- Cache Control ----------
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def cache(self, materialize: bool = True):
         """CACHE TABLE; optionally materialize with COUNT(*)."""
         self.spark.sql(f"CACHE TABLE {self.table_or_path}")
         if materialize:
             self.spark.sql(f"SELECT COUNT(*) FROM {self.table_or_path}").show()
 
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def uncache(self):
         """UNCACHE TABLE."""
         self.spark.sql(f"UNCACHE TABLE {self.table_or_path}")
@@ -224,7 +224,7 @@ class DeltaTableManager:
         """Return True if table is cached."""
         return self.spark.catalog.isCached(self.table_or_path)
 
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def recache(self, materialize: bool = True):
         """Refresh metadata and re-cache (dev-friendly)."""
         if self.is_cached():
@@ -232,7 +232,7 @@ class DeltaTableManager:
         self.spark.sql(f"REFRESH TABLE {self.table_or_path}")
         self.cache(materialize=materialize)
 
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def cache_status(self) -> dict:
         """Report cached state and sizes (estimated vs actual)."""
         import math
@@ -275,13 +275,13 @@ class DeltaTableManager:
 
     # ---------- Session-wide helpers ----------
     @staticmethod
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def uncache_all(spark: SparkSession):
         """Clear all caches in the current Spark session."""
         spark.catalog.clearCache()
 
     @staticmethod
-    @log_call
+    @log_call(module="DELTA", component="DeltaTableManager")
     def list_cached_tables(spark: SparkSession) -> list:
         """List all cached datasets with basic storage details."""
         import math
