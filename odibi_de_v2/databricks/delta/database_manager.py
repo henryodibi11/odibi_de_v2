@@ -73,13 +73,13 @@ class DatabaseManager:
         self.spark = spark
         self.database = database
 
-    @log_call
+    @log_call(module="DELTA", component="DatabaseManager")
     def list_tables(self) -> List[str]:
         """Return fully-qualified Delta table names for the database."""
         tables = self.spark.sql(f"SHOW TABLES IN {self.database}").collect()
         return [f"{self.database}.{row['tableName']}" for row in tables]
 
-    @log_call
+    @log_call(module="DELTA", component="DatabaseManager")
     def vacuum_all(self, retention_hours: int = 168, dry_run: bool = False) -> List[Dict[str, str]]:
         """
         Run VACUUM on all Delta tables in the database.
@@ -104,7 +104,7 @@ class DatabaseManager:
 
         return results
 
-    @log_call
+    @log_call(module="DELTA", component="DatabaseManager")
     def optimize_all(self, zorder_by: Optional[List[str]] = None) -> List[Dict[str, str]]:
         """
         Run OPTIMIZE on all Delta tables in the database.
@@ -129,7 +129,7 @@ class DatabaseManager:
 
         return results
 
-    @log_call
+    @log_call(module="DELTA", component="DatabaseManager")
     def cache_all(self, name_filter: Optional[str] = None, materialize: bool = True) -> List[Dict[str, str]]:
         """
         Cache all (or filtered) tables in the database.
@@ -155,7 +155,7 @@ class DatabaseManager:
 
         return results
 
-    @log_call
+    @log_call(module="DELTA", component="DatabaseManager")
     def uncache_all(self, name_filter: Optional[str] = None) -> List[Dict[str, str]]:
         """
         Uncache all (or filtered) tables in the database.
