@@ -1,3 +1,6 @@
+import pandas as pd
+
+
 class IngestionConfigConstructor:
     """
     Converts metadata DataFrames (from SQL config tables) into clean Python dictionaries.
