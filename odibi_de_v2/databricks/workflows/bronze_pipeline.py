@@ -69,7 +69,7 @@ def run_bronze_pipeline(
     """
     from odibi_de_v2.databricks import (
         init_spark_with_azure_secrets,
-        load_ingestion_config_tables,
+        load_ingestion_configs_from_sql,
         IngestionConfigConstructor,
         get_secret,
         SparkDataReaderFromConfig,
@@ -100,7 +100,7 @@ def run_bronze_pipeline(
         log_and_optionally_raise(**_log_args, error_type=ErrorType.NO_ERROR,
             message="Loading source and target configs from SQL", level="DEBUG")
 
-        source_df, target_df = load_ingestion_config_tables(
+        source_df, target_df = load_ingestion_configs_from_sql(
             host=get_secret(secret_scope, sql_server_key),
             database=get_secret(secret_scope, sql_db_key),
             user=get_secret(secret_scope, sql_user_key),
