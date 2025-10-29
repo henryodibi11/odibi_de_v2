@@ -159,6 +159,10 @@ class SparkDataReader(DataReader):
         reader = spark.read.format("jdbc").options(**jdbc_options)
 
         is_query = kwargs.pop("is_query", None)
+        
+        if query_or_table is None:
+            raise ValueError("query_or_table parameter cannot be None for SQL read")
+        
         query_lower = query_or_table.strip().lower()
 
         if is_query is True or query_lower.startswith(("select", "with")):

@@ -75,6 +75,11 @@ class TransformationRunnerFromConfig:
             AND environment = '{self.env}'
             AND layer = '{self.layer}'
             """
+            
+            print(f"DEBUG: About to query TransformationRegistry")
+            print(f"DEBUG: Query: {query}")
+            print(f"DEBUG: sql_provider type: {type(self.sql_provider)}")
+            
             source_target = self.sql_provider.read(
                 data_type=DataType.SQL,
                 container="",
