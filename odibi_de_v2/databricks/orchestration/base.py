@@ -74,7 +74,7 @@ class BaseProjectOrchestrator(ABC):
 
         except Exception as e:
             status = "FAILED"
-            self.logger.log("error", f"❌ Orchestrator failed: {e}", exc_info=True)
+            self.logger.log("error", f"❌ Orchestrator failed: {e}")
             raise
         finally:
             self.on_finish()
