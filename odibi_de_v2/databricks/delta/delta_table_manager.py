@@ -161,6 +161,8 @@ class DeltaTableManager:
     @log_call(module="DATABRICKS", component="DeltaTableManager")
     def time_travel(self, version: Optional[int] = None, timestamp: Optional[str] = None) -> DataFrame:
         """Read the table at a past version or timestamp."""
+        if version is not None and timestamp is not None:
+            raise ValueError("Provide either version or timestamp, not both")
         reader = self.spark.read.format("delta")
         if version is not None:
             reader = reader.option("versionAsOf", version)
@@ -172,18 +174,24 @@ class DeltaTableManager:
     def get_latest_version(self) -> int:
         """Return the latest committed version number."""
         history = self.show_history(1)
-        return history.collect()[0]["version"]
+        rows = history.collect()
+        if not rows:
+            raise ValueError(f"No history found for table/path: {self.table_or_path}")
+        return rows[0]["version"]
 
     @log_call(module="DATABRICKS", component="DeltaTableManager")
     def restore_version(self, version: int):
         """Restore table to a specific version using SQL RESTORE."""
+        if self.is_path:
+            raise ValueError("restore_version() only supports metastore tables, not path-based tables. Use register_table() first.")
         self.spark.sql(f"RESTORE TABLE {self.table_or_path} TO VERSION AS OF {version}")
 
     # ---------- Maintenance ----------
     @log_call(module="DATABRICKS", component="DeltaTableManager")
     def optimize(self, zorder_by: Optional[List[str]] = None):
         """Run OPTIMIZE (optionally ZORDER BY the provided columns)."""
-        sql = f"OPTIMIZE {self.table_or_path}"
+        table_ref = f"delta.`{self.table_or_path}`" if self.is_path else self.table_or_path
+        sql = f"OPTIMIZE {table_ref}"
         if zorder_by:
             cols = ", ".join(zorder_by)
             sql += f" ZORDER BY ({cols})"
@@ -192,8 +200,9 @@ class DeltaTableManager:
     @log_call(module="DATABRICKS", component="DeltaTableManager")
     def vacuum(self, retention_hours: int = 168, dry_run: bool = False):
         """Run VACUUM with an optional DRY RUN; retention_hours affects time travel window."""
+        table_ref = f"delta.`{self.table_or_path}`" if self.is_path else self.table_or_path
         dry = " DRY RUN" if dry_run else ""
-        self.spark.sql(f"VACUUM {self.table_or_path} RETAIN {retention_hours} HOURS{dry}")
+        self.spark.sql(f"VACUUM {table_ref} RETAIN {retention_hours} HOURS{dry}")
 
     @log_call(module="DATABRICKS", component="DeltaTableManager")
     def register_table(self, table_name: str, database: Optional[str] = None):
@@ -211,6 +220,8 @@ class DeltaTableManager:
     @log_call(module="DATABRICKS", component="DeltaTableManager")
     def cache(self, materialize: bool = True):
         """CACHE TABLE; optionally materialize with COUNT(*)."""
+        if self.is_path:
+            raise ValueError("cache() only supports metastore tables, not path-based tables. Use register_table() first.")
         self.spark.sql(f"CACHE TABLE {self.table_or_path}")
         if materialize:
             self.spark.sql(f"SELECT COUNT(*) FROM {self.table_or_path}").show()
@@ -218,6 +229,8 @@ class DeltaTableManager:
     @log_call(module="DATABRICKS", component="DeltaTableManager")
     def uncache(self):
         """UNCACHE TABLE."""
+        if self.is_path:
+            raise ValueError("uncache() only supports metastore tables, not path-based tables. Use register_table() first.")
         self.spark.sql(f"UNCACHE TABLE {self.table_or_path}")
 
     def is_cached(self) -> bool:
@@ -227,6 +240,8 @@ class DeltaTableManager:
     @log_call(module="DATABRICKS", component="DeltaTableManager")
     def recache(self, materialize: bool = True):
         """Refresh metadata and re-cache (dev-friendly)."""
+        if self.is_path:
+            raise ValueError("recache() only supports metastore tables, not path-based tables. Use register_table() first.")
         if self.is_cached():
             self.uncache()
         self.spark.sql(f"REFRESH TABLE {self.table_or_path}")
