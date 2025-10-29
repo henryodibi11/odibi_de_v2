@@ -317,7 +317,7 @@ class TransformationRegistryUI:
                     # JSON fields
                     values.append(f"'{json.dumps(value)}'")
                 elif isinstance(value, str):
-                    values.append(f"'{value.replace(\"'\", \"''\")}'")
+                    values.append("'" + value.replace("'", "''") + "'")
                 elif isinstance(value, bool):
                     values.append(str(int(value)))
                 else:
