@@ -241,15 +241,22 @@ class TransformationRunnerFromConfig:
                 module = importlib.import_module(full_module)
                 func = getattr(module, func_name)
                 
-                # Merge config data with kwargs
-                func_kwargs = {
-                    **self.kwargs,
-                    'inputs': cfg.get('inputs', []),
-                    'constants': cfg.get('constants', {}),
-                    'outputs': cfg.get('outputs', []),
-                    'spark': self.spark,
-                    'env': cfg.get('env', self.env)
-                }
+                # Merge config data with kwargs (only pass non-None values)
+                func_kwargs = {**self.kwargs}
+                
+                # Only add these if they have meaningful values
+                if cfg.get('inputs'):
+                    func_kwargs['inputs'] = cfg.get('inputs', [])
+                if cfg.get('constants'):
+                    func_kwargs['constants'] = cfg.get('constants', {})
+                if cfg.get('outputs'):
+                    func_kwargs['outputs'] = cfg.get('outputs', [])
+                if self.spark:
+                    func_kwargs['spark'] = self.spark
+                if cfg.get('env'):
+                    func_kwargs['env'] = cfg.get('env', self.env)
+                
+                print(f"DEBUG: Calling {func_name} with kwargs keys: {list(func_kwargs.keys())}")
                 
                 func(**func_kwargs)
  
