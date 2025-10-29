@@ -195,15 +195,16 @@ class GenericProjectOrchestrator(BaseProjectOrchestrator):
             if not self.spark:
                 self.spark = SparkSession.builder.appName(self.project).getOrCreate()
             
-            # Create basic SQL provider (implementation needed based on connector)
-            from odibi_de_v2.connector import AzureSQLConnection
-            from odibi_de_v2.ingestion import DataReader
-            
-            # This would be configured via environment-specific config
-            # For now, using placeholder
-            self.sql_provider = None  # Will be set up based on project config
+            # SQL provider must be provided via auth_provider
+            self.sql_provider = None
         
-        self.logger.log("info", "✅ Environment bootstrapped")
+        if not self.spark:
+            raise RuntimeError("Spark session not available. Provide auth_provider or ensure Spark is active.")
+        
+        if not self.sql_provider:
+            raise RuntimeError("SQL provider not available. Must provide auth_provider that returns sql_provider.")
+        
+        self.logger.log("info", "Environment bootstrapped")
     
     # -----------------------------------------------------------------------
     # 2️⃣ Bronze ingestion
