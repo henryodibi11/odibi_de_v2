@@ -70,20 +70,22 @@ class BaseProjectOrchestrator(ABC):
             # 3️⃣ Silver/Gold layers
             self.run_silver_gold_layers(**kwargs)
             status = "SUCCESS"
+            layers_executed = target_layers if target_layers else ["Bronze", "Silver", "Gold"]
 
         except Exception as e:
             status = "FAILED"
-            self.logger.log("error", f"❌ Orchestrator failed: {e}")
+            self.logger.log("error", f"❌ Orchestrator failed: {e}", exc_info=True)
             raise
         finally:
             self.on_finish()
 
-        total_time = time.time() - start_time
+        total_time = round(time.time() - start_time, 2)
         self.logger.log("info", f"🏁 Orchestration completed in {total_time:.2f}s")
 
         return {
             "status": status,
             "project": self.project,
             "env": self.env,
+            "layers_run": layers_executed,
             "duration_seconds": total_time,
         }

@@ -4,6 +4,7 @@ from .ingestion_config_ui import IngestionConfigUI
 from .secrets_config_ui import SecretsConfigUI
 from .target_config_ui import TargetConfigUI
 from .transformation_config_ui import TransformationConfigUI
+from .transformation_registry_ui import TransformationRegistryUI, TransformationRegistryBrowser
 from .dynamic_form_ui import DynamicBatchFormUI
 
 __all__ =[
@@ -11,5 +12,7 @@ __all__ =[
     "ConfigUtils", "IngestionConfigUI",
     "SecretsConfigUI", "TargetConfigUI",
     "TransformationConfigUI",
+    "TransformationRegistryUI",
+    "TransformationRegistryBrowser",
     "DynamicBatchFormUI"
 ]
