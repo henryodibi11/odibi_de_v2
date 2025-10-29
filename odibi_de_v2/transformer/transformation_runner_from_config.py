@@ -339,7 +339,11 @@ class TransformationRunnerFromConfig:
                 try:
                     future.result()
                 except Exception as e:
-                    print(f"Parallel task failed for {cfg['module']} | {e}")
+                    import traceback
+                    print(f"\nParallel task failed for {cfg['module']}.{cfg.get('function')} | {e}")
+                    print("Full traceback:")
+                    traceback.print_exc()
+                    print("-" * 80)
                     log_and_optionally_raise(
                         module="Transformer",
                         component="TransformationRunnerFromConfig",
