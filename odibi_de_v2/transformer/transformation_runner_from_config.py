@@ -153,7 +153,16 @@ class TransformationRunnerFromConfig:
             StructField("error_message", StringType(), True),
             StructField("env", StringType(), True)
         ])
-        df = self.spark.createDataFrame(data, schema=LOG_SCHEMA)
+        
+        # Clean sys.path to avoid None entries that break Databricks serialization
+        import sys
+        original_path = sys.path[:]
+        sys.path = [p for p in sys.path if p is not None]
+        
+        try:
+            df = self.spark.createDataFrame(data, schema=LOG_SCHEMA)
+        finally:
+            sys.path = original_path
         try:
             (
                 df.write
