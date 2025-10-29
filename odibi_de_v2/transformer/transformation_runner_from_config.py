@@ -64,7 +64,7 @@ class TransformationRunnerFromConfig:
                 entity_1 as plant,
                 entity_2 as asset,
                 module,
-                [function],
+                function,
                 inputs,
                 constants,
                 outputs,
