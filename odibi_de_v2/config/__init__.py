@@ -6,6 +6,7 @@ from .target_config_ui import TargetConfigUI
 from .transformation_config_ui import TransformationConfigUI
 from .transformation_registry_ui import TransformationRegistryUI, TransformationRegistryBrowser
 from .dynamic_form_ui import DynamicBatchFormUI
+from .validator import ConfigValidator, ValidationResult, validate_transformation_registry
 
 __all__ =[
     "load_transformation_config_table",
@@ -14,5 +15,8 @@ __all__ =[
     "TransformationConfigUI",
     "TransformationRegistryUI",
     "TransformationRegistryBrowser",
-    "DynamicBatchFormUI"
+    "DynamicBatchFormUI",
+    "ConfigValidator",
+    "ValidationResult",
+    "validate_transformation_registry"
 ]

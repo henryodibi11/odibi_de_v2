@@ -409,20 +409,186 @@ def initialize_project(
     base_path: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Convenience function to initialize a new project.
+    Initialize a complete new project with scaffolding, manifest, and templates.
+    
+    Creates a fully-structured project directory with all necessary files, folders,
+    and boilerplate code to start building a data pipeline. This is the fastest way
+    to bootstrap a new odibi_de_v2 project.
     
     Args:
-        project_name: Name of the project (e.g., "Customer Churn")
-        project_type: Type of project (manufacturing, analytics, ml_pipeline, custom)
-        base_path: Optional base path for projects
+        project_name: Human-readable project name (e.g., "Customer Churn Analysis",
+            "Energy Efficiency Dashboard"). Used in documentation and config files.
+        project_type: Type of project template to create. Valid options:
+            - "manufacturing": 5-layer architecture for plant/asset data
+            - "analytics": Standard 3-layer medallion for analytics
+            - "ml_pipeline": Optimized for machine learning workflows
+            - "data_integration": Focused on ETL/ELT patterns
+            - "custom": Minimal structure with generic labels
+        base_path: Root directory where project folder will be created. Defaults to
+            "./projects" if not specified. Will be created if it doesn't exist.
     
     Returns:
-        Dictionary with project details
+        Dictionary containing project initialization details with keys:
+            - 'project_name': Original project name
+            - 'project_slug': URL-safe project identifier (lowercase, underscores)
+            - 'project_path': Absolute path to created project directory
+            - 'manifest_path': Path to generated manifest.json
+            - 'created_files': List of all created files and directories
+            - 'layer_order': List of layer names from manifest
+            - 'next_steps': List of recommended next actions
     
-    Example:
-        >>> result = initialize_project("Customer Churn", "analytics")
-        >>> print(result['project_path'])
-        projects/customer_churn
+    Raises:
+        ValueError: If project already exists and overwrite=False
+        TypeError: If project_type is not a valid option
+    
+    Examples:
+        **Example 1: Create Manufacturing Project**
+        
+            >>> from odibi_de_v2 import initialize_project
+            >>> 
+            >>> # Create manufacturing project with full scaffolding
+            >>> result = initialize_project(
+            ...     project_name="Plant Efficiency",
+            ...     project_type="manufacturing"
+            ... )
+            >>> 
+            >>> print(f"✅ Created: {result['project_path']}")
+            >>> print(f"📁 Files created: {len(result['created_files'])}")
+            >>> 
+            >>> # Next steps are automatically printed
+            >>> for step in result['next_steps']:
+            ...     print(step)
+        
+        **Example 2: Create Analytics Project with Custom Path**
+        
+            >>> from odibi_de_v2 import initialize_project
+            >>> 
+            >>> # Create in specific directory
+            >>> result = initialize_project(
+            ...     project_name="Sales Dashboard",
+            ...     project_type="analytics",
+            ...     base_path="/data/analytics_projects"
+            ... )
+            >>> 
+            >>> print(result['project_path'])
+            /data/analytics_projects/sales_dashboard
+        
+        **Example 3: Create and Immediately Configure**
+        
+            >>> from odibi_de_v2 import initialize_project, run_project
+            >>> from pathlib import Path
+            >>> 
+            >>> # Initialize project
+            >>> result = initialize_project(
+            ...     project_name="Customer 360",
+            ...     project_type="analytics"
+            ... )
+            >>> 
+            >>> # Load and customize manifest
+            >>> from odibi_de_v2.project import ProjectManifest
+            >>> manifest = ProjectManifest.from_json(
+            ...     Path(result['manifest_path'])
+            ... )
+            >>> manifest.owner = "analytics-team@company.com"
+            >>> manifest.tags = ["customer", "360", "analytics"]
+            >>> manifest.to_json(Path(result['manifest_path']))
+            >>> 
+            >>> print("✅ Project configured and ready!")
+        
+        **Example 4: Create Custom Project with Validation**
+        
+            >>> from odibi_de_v2 import initialize_project
+            >>> from odibi_de_v2.project import validate_manifest, ProjectManifest
+            >>> from pathlib import Path
+            >>> 
+            >>> # Create custom project
+            >>> result = initialize_project(
+            ...     project_name="IoT Pipeline",
+            ...     project_type="custom"
+            ... )
+            >>> 
+            >>> # Validate generated manifest
+            >>> manifest = ProjectManifest.from_json(
+            ...     Path(result['manifest_path'])
+            ... )
+            >>> errors = validate_manifest(manifest)
+            >>> 
+            >>> if not errors:
+            ...     print("✅ Project validated successfully!")
+            ... else:
+            ...     print(f"⚠️ Validation warnings: {errors}")
+        
+        **Example 5: Inspect Created Structure**
+        
+            >>> from odibi_de_v2 import initialize_project
+            >>> import os
+            >>> 
+            >>> result = initialize_project(
+            ...     project_name="Test Project",
+            ...     project_type="analytics"
+            ... )
+            >>> 
+            >>> # Examine created files
+            >>> print("Created files:")
+            >>> for file_path in result['created_files']:
+            ...     if os.path.isfile(file_path):
+            ...         print(f"  📄 {file_path}")
+            ...     else:
+            ...         print(f"  📁 {file_path}")
+        
+        **Example 6: Batch Project Creation**
+        
+            >>> from odibi_de_v2 import initialize_project
+            >>> 
+            >>> # Create multiple related projects
+            >>> projects = [
+            ...     ("Sales Analytics", "analytics"),
+            ...     ("Inventory Management", "manufacturing"),
+            ...     ("Customer Segmentation", "ml_pipeline")
+            ... ]
+            >>> 
+            >>> created_projects = []
+            >>> for name, ptype in projects:
+            ...     result = initialize_project(
+            ...         project_name=name,
+            ...         project_type=ptype,
+            ...         base_path="./multi_project_workspace"
+            ...     )
+            ...     created_projects.append(result)
+            >>> 
+            >>> print(f"Created {len(created_projects)} projects")
+        
+        **Example 7: Error Handling**
+        
+            >>> from odibi_de_v2 import initialize_project
+            >>> 
+            >>> try:
+            ...     result = initialize_project(
+            ...         project_name="My Project",
+            ...         project_type="analytics"
+            ...     )
+            ...     print("✅ Project created successfully!")
+            ... except ValueError as e:
+            ...     print(f"❌ Project already exists: {e}")
+            ... except Exception as e:
+            ...     print(f"❌ Error: {e}")
+    
+    Notes:
+        - Creates complete directory structure with transformations/, sql/, notebooks/,
+          tests/, config/, docs/, and metadata/ folders
+        - Generates manifest.json with project configuration
+        - Creates template transformation functions for each layer
+        - Generates __init__.py files for Python package structure
+        - Creates README.md with quick start guide and documentation
+        - Creates example config JSON for TransformationRegistry
+        - All template files are ready to customize for your specific use case
+        - Project slug (URL-safe name) is auto-generated from project_name
+    
+    See Also:
+        - ProjectManifest.create_template: Create standalone manifest
+        - ProjectScaffolder: Low-level scaffolding class
+        - run_project: Execute created project
+        - validate_manifest: Validate project manifest
     """
     scaffolder = ProjectScaffolder(base_path=Path(base_path) if base_path else None)
     

@@ -13,19 +13,184 @@ from typing import Optional, Dict, Any, List
 
 class TransformationRegistryUI:
     """
-    Interactive UI for building TransformationRegistry configurations.
+    Interactive Jupyter/IPython widget for building TransformationRegistry configurations.
     
-    Supports:
-    - All TransformationRegistry fields
-    - JSON editing for inputs, constants, outputs
-    - Visual field organization
-    - SQL and JSON export
-    - Project and environment filtering
+    Provides a visual form-based interface for creating transformation config entries
+    without manually writing SQL INSERT statements or JSON. Particularly useful in
+    Databricks notebooks or JupyterLab environments.
     
-    Example:
-        >>> from odibi_de_v2.config import TransformationRegistryUI
-        >>> ui = TransformationRegistryUI(project="Energy Efficiency", env="qat")
-        >>> ui.render()
+    Features:
+        - Visual form with all TransformationRegistry fields
+        - JSON editing for complex inputs, constants, and outputs
+        - Instant SQL INSERT statement generation
+        - JSON export for config files
+        - Copy-to-clipboard functionality
+        - Field validation with error messages
+        - Project and environment pre-population
+    
+    Attributes:
+        project (str): Default project name for new configurations
+        env (str): Default environment (qat, prod, dev)
+        transformation_id (widgets.Text): Unique transformation identifier field
+        layer (widgets.Text): Layer name field (Bronze, Silver_1, Gold_1, etc.)
+        module (widgets.Text): Python module path field
+        function (widgets.Text): Function name field
+        inputs (widgets.Textarea): JSON array of input tables/queries
+        constants (widgets.Textarea): JSON object of constant parameters
+        outputs (widgets.Textarea): JSON array of output configurations
+    
+    Examples:
+        **Example 1: Basic Usage in Databricks Notebook**
+        
+            >>> from odibi_de_v2.config import TransformationRegistryUI
+            >>> 
+            >>> # Launch interactive UI
+            >>> ui = TransformationRegistryUI(
+            ...     project="Energy Efficiency",
+            ...     env="qat"
+            ... )
+            >>> ui.render()
+            >>> 
+            >>> # User fills in form fields visually, then clicks:
+            >>> # - "Generate JSON" to see JSON representation
+            >>> # - "Generate SQL Insert" to get SQL statement
+            >>> # - "Copy to Clipboard" to copy SQL for pasting
+        
+        **Example 2: Pre-populate and Generate SQL**
+        
+            >>> from odibi_de_v2.config import TransformationRegistryUI
+            >>> 
+            >>> # Create UI instance
+            >>> ui = TransformationRegistryUI(project="Sales Analytics", env="prod")
+            >>> 
+            >>> # Pre-populate fields programmatically
+            >>> ui.transformation_id.value = "aggregate-daily-sales"
+            >>> ui.layer.value = "Gold_1"
+            >>> ui.module.value = "sales.transformations.gold.aggregations"
+            >>> ui.function.value = "aggregate_daily_sales"
+            >>> ui.inputs.value = '["prod_sales.cleaned_transactions"]'
+            >>> ui.constants.value = '{"aggregation_level": "daily"}'
+            >>> ui.outputs.value = '[{"table": "prod_sales.daily_summary", "mode": "overwrite"}]'
+            >>> 
+            >>> # Render UI
+            >>> ui.render()
+            >>> 
+            >>> # Get generated SQL
+            >>> sql = ui.get_sql_insert()
+            >>> print(sql)
+        
+        **Example 3: Programmatically Generate Config**
+        
+            >>> from odibi_de_v2.config import TransformationRegistryUI
+            >>> import json
+            >>> 
+            >>> # Create and configure UI without rendering
+            >>> ui = TransformationRegistryUI(project="Manufacturing", env="qat")
+            >>> ui.transformation_id.value = "combine-plant-data"
+            >>> ui.layer.value = "Silver_1"
+            >>> ui.step.value = 1
+            >>> ui.entity_1.value = "all_plants"
+            >>> ui.module.value = "manufacturing.transformations.silver.combine"
+            >>> ui.function.value = "combine_plant_data"
+            >>> 
+            >>> # Get config as dictionary
+            >>> config = ui.get_config_dict()
+            >>> print(json.dumps(config, indent=2))
+        
+        **Example 4: Batch Config Generation**
+        
+            >>> from odibi_de_v2.config import TransformationRegistryUI
+            >>> 
+            >>> # Define transformation specs
+            >>> transformations = [
+            ...     {
+            ...         "id": "ingest-source-a",
+            ...         "layer": "Bronze",
+            ...         "function": "ingest_source_a"
+            ...     },
+            ...     {
+            ...         "id": "clean-source-a",
+            ...         "layer": "Silver_1",
+            ...         "function": "clean_source_a"
+            ...     }
+            ... ]
+            >>> 
+            >>> # Generate SQL for each
+            >>> ui = TransformationRegistryUI(project="MyProject", env="qat")
+            >>> sql_statements = []
+            >>> 
+            >>> for spec in transformations:
+            ...     ui.transformation_id.value = spec["id"]
+            ...     ui.layer.value = spec["layer"]
+            ...     ui.function.value = spec["function"]
+            ...     ui.module.value = f"myproject.transformations.{spec['layer'].lower()}"
+            ...     sql_statements.append(ui.get_sql_insert())
+            >>> 
+            >>> # Combine all SQL
+            >>> full_sql = "\n\n".join(sql_statements)
+            >>> print(full_sql)
+        
+        **Example 5: Complex Input/Output Configuration**
+        
+            >>> from odibi_de_v2.config import TransformationRegistryUI
+            >>> import json
+            >>> 
+            >>> ui = TransformationRegistryUI(project="Analytics", env="qat")
+            >>> ui.transformation_id.value = "multi-source-join"
+            >>> ui.layer.value = "Silver_2"
+            >>> 
+            >>> # Complex inputs with query
+            >>> inputs = [
+            ...     "qat_schema.table_a",
+            ...     "qat_schema.table_b",
+            ...     {
+            ...         "type": "query",
+            ...         "sql": "SELECT * FROM qat_schema.table_c WHERE active = 1"
+            ...     }
+            ... ]
+            >>> ui.inputs.value = json.dumps(inputs, indent=2)
+            >>> 
+            >>> # Multiple outputs
+            >>> outputs = [
+            ...     {"table": "qat_schema.joined_data", "mode": "overwrite"},
+            ...     {"table": "qat_schema.joined_data_history", "mode": "append"}
+            ... ]
+            >>> ui.outputs.value = json.dumps(outputs, indent=2)
+            >>> 
+            >>> ui.render()
+        
+        **Example 6: Error Handling**
+        
+            >>> from odibi_de_v2.config import TransformationRegistryUI
+            >>> 
+            >>> ui = TransformationRegistryUI(project="Test", env="qat")
+            >>> 
+            >>> # Invalid JSON in inputs
+            >>> ui.inputs.value = '["table1", invalid json]'
+            >>> 
+            >>> # Try to get config - will show error
+            >>> config = ui.get_config_dict()
+            >>> if "ERROR" in str(config.get("inputs", "")):
+            ...     print("Fix JSON syntax before generating SQL")
+            >>> 
+            >>> # Fix JSON
+            >>> ui.inputs.value = '["table1", "table2"]'
+            >>> config = ui.get_config_dict()
+            >>> print("✅ Config valid")
+    
+    Notes:
+        - Requires ipywidgets and IPython (installed in Databricks by default)
+        - JSON fields support both simple arrays and complex nested structures
+        - Entity fields (entity_1, entity_2, entity_3) are generic and should match
+          project manifest entity labels
+        - Generated SQL is compatible with SQL Server TransformationRegistry table
+        - Use get_config_dict() for JSON export, get_sql_insert() for SQL
+        - Clear button resets form to default values
+    
+    See Also:
+        - TransformationRegistryBrowser: Browse existing registry entries
+        - TransformationRunnerFromConfig: Execute registered transformations
+        - ProjectManifest: Configure project-level entity labels
     """
     
     def __init__(self, project: str = "", env: str = "qat"):

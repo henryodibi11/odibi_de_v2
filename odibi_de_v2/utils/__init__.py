@@ -80,6 +80,17 @@ from .init_utils import generate_recursive_inits
 from .threading import get_dynamic_thread_count
 from .view_naming import scoped_temp_view_name
 from .generate_transformation_story import generate_transformation_story
+from .health_check import HealthCheck, quick_health_check
+from .helpers import (
+    list_projects,
+    get_project_status,
+    get_layer_summary,
+    get_failed_transformations,
+    retry_failed_transformations,
+    get_transformation_config,
+    print_project_summary,
+    export_project_config
+)
 
 __all__ = [
     # excel ingestion
@@ -167,5 +178,19 @@ __all__ = [
     
     # Generate Transformation Story
     "generate_transformation_story",
+    
+    # Health Check
+    "HealthCheck",
+    "quick_health_check",
+    
+    # Helper Functions
+    "list_projects",
+    "get_project_status",
+    "get_layer_summary",
+    "get_failed_transformations",
+    "retry_failed_transformations",
+    "get_transformation_config",
+    "print_project_summary",
+    "export_project_config",
 
 ]

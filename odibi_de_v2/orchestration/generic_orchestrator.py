@@ -348,35 +348,166 @@ def run_project(
     **kwargs
 ) -> Dict[str, Any]:
     """
-    Convenience function to run any project with one command.
+    Execute a complete data pipeline for any project with a single function call.
+    
+    This is the main entry point for running odibi_de_v2 pipelines. It orchestrates
+    the entire medallion architecture flow (Bronze → Silver → Gold) based on the
+    project's manifest configuration and TransformationRegistry entries.
     
     Args:
-        project: Project name (e.g., "Energy Efficiency", "Customer Churn")
-        env: Environment (qat, prod, dev, etc.)
-        target_layers: Optional list of specific layers to run
-        cache_plan: Optional caching configuration
-        manifest_path: Optional path to manifest.json
-        log_level: Logging level
-        save_logs: Whether to save logs
-        auth_provider: Optional authentication provider
-        **kwargs: Additional parameters passed to orchestrator
+        project: Project name as registered in config tables (e.g., "Energy Efficiency").
+        env: Target environment - one of "qat", "prod", "dev". Determines which
+            configuration entries and data sources are used.
+        target_layers: Optional list of specific layers to execute. If None, runs all
+            layers defined in the project manifest. Examples: ["Bronze"], 
+            ["Silver_1", "Gold_1"], ["Gold_1", "Gold_2"].
+        cache_plan: Optional dictionary mapping layer names to lists of table names
+            to cache after layer completion. Example: 
+            {"Gold_1": ["schema.aggregated_table", "schema.summary_table"]}.
+        manifest_path: Absolute path to project manifest.json file. If None, 
+            auto-discovers from standard project locations.
+        log_level: Logging verbosity - one of "INFO", "WARNING", "ERROR". Controls
+            amount of execution detail logged.
+        save_logs: If True, persists execution logs to cloud storage after completion.
+        auth_provider: Optional callable that returns authentication context with
+            'spark' and 'sql_provider' keys. Required for Databricks execution.
+        **kwargs: Additional parameters passed to the orchestrator (e.g., max_workers,
+            repo_path for custom authentication).
     
     Returns:
-        Result dictionary with execution summary
+        Dictionary containing execution summary with keys:
+            - 'status': 'success' or 'failed'
+            - 'layers_executed': List of layer names that were run
+            - 'duration_seconds': Total execution time
+            - 'errors': List of any errors encountered
+    
+    Raises:
+        ValueError: If project name is invalid or not found in configuration.
+        RuntimeError: If Spark session or SQL provider is unavailable.
+        FileNotFoundError: If manifest_path is specified but doesn't exist.
     
     Examples:
-        # Run entire pipeline
-        >>> run_project("Energy Efficiency", env="qat")
+        **Example 1: Run Complete Pipeline**
         
-        # Run specific layers
-        >>> run_project("Customer Churn", env="prod", target_layers=["Silver", "Gold"])
+            >>> from odibi_de_v2 import run_project
+            >>> 
+            >>> # Execute all layers (Bronze → Silver → Gold)
+            >>> result = run_project(
+            ...     project="Energy Efficiency",
+            ...     env="qat",
+            ...     log_level="INFO"
+            ... )
+            >>> print(f"Pipeline completed in {result['duration_seconds']:.1f}s")
         
-        # With caching
-        >>> run_project(
-        ...     "Energy Efficiency",
-        ...     env="qat",
-        ...     cache_plan={"Gold_1": ["combined_dryers"]}
-        ... )
+        **Example 2: Run Specific Layers Only**
+        
+            >>> from odibi_de_v2 import run_project
+            >>> 
+            >>> # Run only Silver and Gold transformations (skip Bronze ingestion)
+            >>> result = run_project(
+            ...     project="Customer Churn",
+            ...     env="prod",
+            ...     target_layers=["Silver_1", "Gold_1"]
+            ... )
+        
+        **Example 3: Run with Table Caching**
+        
+            >>> from odibi_de_v2 import run_project
+            >>> 
+            >>> # Cache expensive aggregation tables after Gold layer
+            >>> result = run_project(
+            ...     project="Energy Efficiency",
+            ...     env="qat",
+            ...     cache_plan={
+            ...         "Gold_1": [
+            ...             "qat_energy.combined_dryers",
+            ...             "qat_energy.aggregated_metrics"
+            ...         ]
+            ...     }
+            ... )
+        
+        **Example 4: Run with Custom Authentication (Databricks)**
+        
+            >>> from odibi_de_v2 import run_project
+            >>> from my_auth_module import get_databricks_auth
+            >>> 
+            >>> # Provide custom auth provider for Databricks
+            >>> def auth_provider(env, repo_path=None, logger_metadata=None):
+            ...     spark = SparkSession.builder.getOrCreate()
+            ...     sql_provider = SQLServerConnection(
+            ...         server="my-server.database.windows.net",
+            ...         database="config_db"
+            ...     )
+            ...     return {"spark": spark, "sql_provider": sql_provider}
+            >>> 
+            >>> result = run_project(
+            ...     project="Manufacturing KPIs",
+            ...     env="prod",
+            ...     auth_provider=auth_provider,
+            ...     save_logs=True
+            ... )
+        
+        **Example 5: Run Bronze Ingestion Only**
+        
+            >>> from odibi_de_v2 import run_project
+            >>> 
+            >>> # Ingest raw data without transformations
+            >>> result = run_project(
+            ...     project="Sales Analytics",
+            ...     env="qat",
+            ...     target_layers=["Bronze"]
+            ... )
+        
+        **Example 6: Production Run with Full Logging**
+        
+            >>> from odibi_de_v2 import run_project
+            >>> import logging
+            >>> 
+            >>> # Production execution with comprehensive logging
+            >>> result = run_project(
+            ...     project="Financial Reporting",
+            ...     env="prod",
+            ...     log_level="INFO",
+            ...     save_logs=True,
+            ...     cache_plan={
+            ...         "Silver_2": ["prod_finance.validated_transactions"],
+            ...         "Gold_1": ["prod_finance.monthly_summary"]
+            ...     }
+            ... )
+            >>> 
+            >>> # Check results
+            >>> if result['status'] == 'success':
+            ...     print(f"✅ Pipeline succeeded")
+            ...     print(f"Layers: {', '.join(result['layers_executed'])}")
+            ... else:
+            ...     print(f"❌ Pipeline failed: {result['errors']}")
+        
+        **Example 7: Custom Manifest Location**
+        
+            >>> from odibi_de_v2 import run_project
+            >>> 
+            >>> # Use manifest from non-standard location
+            >>> result = run_project(
+            ...     project="Custom Project",
+            ...     env="qat",
+            ...     manifest_path="/custom/path/to/manifest.json"
+            ... )
+    
+    Notes:
+        - The function automatically discovers the project manifest from standard
+          locations if manifest_path is not provided.
+        - All transformations must be registered in the TransformationRegistry SQL
+          table with matching project and environment values.
+        - For Bronze layer execution, ensure IngestionSourceConfig table is populated
+          with appropriate data source definitions.
+        - Layer execution order is determined by the project manifest's layer_order.
+        - Each layer runs all transformations in sequence by step number, but
+          transformations within the same step can run in parallel.
+    
+    See Also:
+        - GenericProjectOrchestrator: The underlying orchestrator class
+        - TransformationRunnerFromConfig: Handles individual transformation execution
+        - initialize_project: Create new project scaffolding
     """
     orchestrator = GenericProjectOrchestrator(
         project=project,

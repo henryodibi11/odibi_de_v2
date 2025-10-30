@@ -76,14 +76,49 @@ class ProjectManifest:
     
     def to_json(self, path: Optional[Path] = None, indent: int = 2) -> str:
         """
-        Serialize to JSON.
+        Serialize manifest to JSON format.
+        
+        Converts the ProjectManifest to a JSON string and optionally saves it to a file.
+        Automatically handles enum conversion to ensure proper serialization.
         
         Args:
-            path: Optional path to save JSON file
-            indent: JSON indentation level
+            path: Optional filesystem path where JSON file will be saved. If provided,
+                creates parent directories if they don't exist. If None, only returns
+                the JSON string without saving.
+            indent: Number of spaces for JSON indentation. Use 2 for readability,
+                None for compact output.
             
         Returns:
-            JSON string representation
+            JSON string representation of the manifest with all configuration details.
+        
+        Examples:
+            **Example 1: Get JSON String**
+            
+                >>> from odibi_de_v2.project import ProjectManifest, ProjectType
+                >>> 
+                >>> manifest = ProjectManifest.create_template(
+                ...     "Energy Efficiency",
+                ...     ProjectType.MANUFACTURING
+                ... )
+                >>> json_str = manifest.to_json()
+                >>> print(json_str[:100])
+            
+            **Example 2: Save to File**
+            
+                >>> from odibi_de_v2.project import ProjectManifest, ProjectType
+                >>> from pathlib import Path
+                >>> 
+                >>> manifest = ProjectManifest.create_template(
+                ...     "Customer Analytics",
+                ...     ProjectType.ANALYTICS
+                ... )
+                >>> manifest.to_json(path=Path("projects/customer/manifest.json"))
+            
+            **Example 3: Compact JSON (No Indentation)**
+            
+                >>> manifest = ProjectManifest.create_template("MyProject")
+                >>> compact = manifest.to_json(indent=None)
+                >>> # Returns single-line JSON string
         """
         data = self.to_dict()
         # Convert enums to strings
@@ -121,14 +156,149 @@ class ProjectManifest:
     @classmethod
     def create_template(cls, project_name: str, project_type: ProjectType = ProjectType.CUSTOM) -> 'ProjectManifest':
         """
-        Create a template manifest for a new project.
+        Create a pre-configured manifest template for a new project.
+        
+        Generates a complete ProjectManifest with sensible defaults based on the
+        project type. Each project type has different layer structures, entity labels,
+        and default configurations optimized for that use case.
         
         Args:
-            project_name: Name of the project
-            project_type: Type of project (determines default structure)
+            project_name: Human-readable project name (e.g., "Energy Efficiency",
+                "Customer Churn Analysis"). Will be slugified for file paths.
+            project_type: Type of project that determines the template structure.
+                Options:
+                - MANUFACTURING: 5 layers (Bronze → Silver_1 → Silver_2 → Gold_1 → Gold_2)
+                  with plant/asset/equipment entity labels
+                - ANALYTICS: 3 layers (Bronze → Silver → Gold) with domain/subdomain/metric
+                  entity labels
+                - ML_PIPELINE: Optimized for ML workflows
+                - DATA_INTEGRATION: Focused on data integration patterns
+                - CUSTOM: Minimal 3-layer structure with generic entity labels
             
         Returns:
-            New ProjectManifest with sensible defaults
+            Fully configured ProjectManifest instance with layer definitions, entity
+            labels, and project metadata ready for customization.
+        
+        Examples:
+            **Example 1: Manufacturing Project**
+            
+                >>> from odibi_de_v2.project import ProjectManifest, ProjectType
+                >>> 
+                >>> # Create manufacturing project with 5-layer architecture
+                >>> manifest = ProjectManifest.create_template(
+                ...     project_name="Plant Efficiency",
+                ...     project_type=ProjectType.MANUFACTURING
+                ... )
+                >>> 
+                >>> print(manifest.layer_order)
+                ['Bronze', 'Silver_1', 'Silver_2', 'Gold_1', 'Gold_2']
+                >>> 
+                >>> print(manifest.entity_labels)
+                {'entity_1': 'plant', 'entity_2': 'asset', 'entity_3': 'equipment'}
+            
+            **Example 2: Analytics Project**
+            
+                >>> from odibi_de_v2.project import ProjectManifest, ProjectType
+                >>> 
+                >>> # Create analytics project with standard medallion
+                >>> manifest = ProjectManifest.create_template(
+                ...     project_name="Sales Dashboard",
+                ...     project_type=ProjectType.ANALYTICS
+                ... )
+                >>> 
+                >>> print(manifest.layer_order)
+                ['Bronze', 'Silver', 'Gold']
+                >>> 
+                >>> print(manifest.layers['Silver'].description)
+                'Cleaned and standardized data'
+            
+            **Example 3: Custom Project with Modifications**
+            
+                >>> from odibi_de_v2.project import ProjectManifest, ProjectType
+                >>> 
+                >>> # Start with custom template and modify
+                >>> manifest = ProjectManifest.create_template(
+                ...     project_name="IoT Sensors",
+                ...     project_type=ProjectType.CUSTOM
+                ... )
+                >>> 
+                >>> # Customize entity labels for IoT context
+                >>> manifest.entity_labels = {
+                ...     'entity_1': 'device',
+                ...     'entity_2': 'sensor',
+                ...     'entity_3': 'reading_type'
+                ... }
+                >>> 
+                >>> # Add cache plan
+                >>> manifest.cache_plan = {
+                ...     'Gold': ['iot_sensors.aggregated_readings']
+                ... }
+                >>> 
+                >>> # Save customized manifest
+                >>> manifest.to_json('projects/iot_sensors/manifest.json')
+            
+            **Example 4: Complete Manufacturing Setup**
+            
+                >>> from odibi_de_v2.project import ProjectManifest, ProjectType
+                >>> from pathlib import Path
+                >>> 
+                >>> # Create and configure manufacturing project
+                >>> manifest = ProjectManifest.create_template(
+                ...     "Energy Efficiency",
+                ...     ProjectType.MANUFACTURING
+                ... )
+                >>> 
+                >>> # Add project metadata
+                >>> manifest.owner = "data-engineering-team@company.com"
+                >>> manifest.tags = ["energy", "manufacturing", "kpi"]
+                >>> manifest.metadata = {
+                ...     "business_unit": "Operations",
+                ...     "data_classification": "Internal"
+                ... }
+                >>> 
+                >>> # Configure caching for expensive aggregations
+                >>> manifest.cache_plan = {
+                ...     "Gold_1": [
+                ...         "qat_energy.combined_dryers",
+                ...         "qat_energy.plant_summary"
+                ...     ],
+                ...     "Gold_2": [
+                ...         "qat_energy.monthly_kpis"
+                ...     ]
+                ... }
+                >>> 
+                >>> # Save to project directory
+                >>> manifest.to_json(Path("projects/energy_efficiency/manifest.json"))
+            
+            **Example 5: Validate Before Saving**
+            
+                >>> from odibi_de_v2.project import (
+                ...     ProjectManifest, ProjectType, validate_manifest
+                ... )
+                >>> 
+                >>> manifest = ProjectManifest.create_template(
+                ...     "Customer 360",
+                ...     ProjectType.ANALYTICS
+                ... )
+                >>> 
+                >>> # Validate manifest before using
+                >>> errors = validate_manifest(manifest)
+                >>> if errors:
+                ...     print(f"Validation errors: {errors}")
+                ... else:
+                ...     print("✅ Manifest is valid")
+                ...     manifest.to_json("projects/customer_360/manifest.json")
+        
+        Notes:
+            - Templates are starting points and should be customized for your use case
+            - Layer definitions include dependencies to ensure proper execution order
+            - Entity labels provide domain-specific naming for generic fields
+            - All templates support multiple environments (qat, prod by default)
+        
+        See Also:
+            - validate_manifest: Validate manifest configuration
+            - ProjectManifest.from_json: Load existing manifest from file
+            - initialize_project: Create complete project with manifest and scaffolding
         """
         if project_type == ProjectType.MANUFACTURING:
             return cls(

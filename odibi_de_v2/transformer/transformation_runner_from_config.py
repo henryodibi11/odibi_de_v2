@@ -76,9 +76,7 @@ class TransformationRunnerFromConfig:
             AND layer = '{self.layer}'
             """
             
-            print(f"DEBUG: About to query TransformationRegistry")
-            print(f"DEBUG: Query: {query}")
-            print(f"DEBUG: sql_provider type: {type(self.sql_provider)}")
+            self.logger.log("info", f"Fetching configurations from TransformationRegistry for {self.project} ({self.env})")
             
             source_target = self.sql_provider.read(
                 data_type=DataType.SQL,
@@ -113,7 +111,7 @@ class TransformationRunnerFromConfig:
             
         except Exception as e:
             # Fall back to legacy TransformationConfig table
-            print(f"TransformationRegistry not found, trying legacy TransformationConfig: {e}")
+            self.logger.log("warning", f"TransformationRegistry not found, using legacy TransformationConfig table")
             
             query = f"""
             SELECT
@@ -172,7 +170,7 @@ class TransformationRunnerFromConfig:
             )
         except AnalysisException as e:
             if "Table or view not found" in str(e):
-                print(f"Creating missing Delta table: {self.log_table}")
+                self.logger.log("info", f"Creating missing Delta table: {self.log_table}")
                 (
                     df.write
                     .format("delta")
@@ -233,14 +231,7 @@ class TransformationRunnerFromConfig:
         func_name = cfg["function"]
         start_time = time.time()
  
-        print(f"Running [{cfg['project']}] {cfg.get('plant') or ''} {cfg.get('asset') or ''} ({full_module}.{func_name})")
-        log_and_optionally_raise(
-            module="Transformer",
-            component="TransformationRunnerFromConfig",
-            method="_run_one",
-            message=f"Running [{cfg['project']}] {cfg.get('plant') or ''} {cfg.get('asset') or ''} ({full_module}.{func_name})",
-            level="INFO"
-        )
+        self.logger.log("info", f"Running [{cfg['project']}] {cfg.get('plant') or ''} {cfg.get('asset') or ''} ({full_module}.{func_name})")
  
         self._log_start(cfg)
  
@@ -265,40 +256,23 @@ class TransformationRunnerFromConfig:
                 if cfg.get('env'):
                     func_kwargs['env'] = cfg.get('env', self.env)
                 
-                print(f"DEBUG: Calling {func_name} with kwargs keys: {list(func_kwargs.keys())}")
-                
                 func(**func_kwargs)
  
                 # success path
                 self._log_end(cfg, "SUCCESS", start_time)
-                print(f"Success: {full_module}.{func_name}\n")
-                log_and_optionally_raise(
-                    module="Transformer",
-                    component="TransformationRunnerFromConfig",
-                    method="_run_one",
-                    message=f"Success: {full_module}.{func_name}\n",
-                    level="INFO"
-                )
+                self.logger.log("info", f"Success: {full_module}.{func_name}")
                 return  # exit after success
  
             except Exception as e:
                 attempt += 1
                 if attempt <= max_retries:
                     delay = base_delay * (2 ** (attempt - 1))
-                    print(f"Retry {attempt}/{max_retries} for {full_module}.{func_name} in {delay:.1f}s | {e}")
+                    self.logger.log("warning", f"Retry {attempt}/{max_retries} for {full_module}.{func_name} in {delay:.1f}s | {e}")
                     time.sleep(delay)
                 else:
                     # all retries failed
                     self._log_end(cfg, "FAILED", start_time, str(e).replace("'", ""))
-                    print(f"Failed after {max_retries} retries: {full_module}.{func_name} | {e}\n")
-                    log_and_optionally_raise(
-                        module="Transformer",
-                        component="TransformationRunnerFromConfig",
-                        error_type=ErrorType.TRANSFORM_ERROR,
-                        method="_run_one",
-                        message=f"Failed after {max_retries} retries: {full_module}.{func_name} | {e}\n",
-                        level="ERROR"
-                    )
+                    self.logger.log("error", f"Failed after {max_retries} retries: {full_module}.{func_name} | {e}")
                     return
 
 
@@ -306,14 +280,7 @@ class TransformationRunnerFromConfig:
         """Runs all transformations sequentially"""
         configs = self._fetch_configs()
         if not configs:
-            print(f"No enabled transformations found for {self.project} ({self.env})")
-            log_and_optionally_raise(
-                module="Transformer",
-                component="TransformationRunnerFromConfig",
-                method="run_all",
-                message=f"No enabled transformations found for {self.project} ({self.env})",
-                level="WARNING"
-            )
+            self.logger.log("warning", f"No enabled transformations found for {self.project} ({self.env})")
             return
         for cfg in configs:
             self._run_one(cfg)
@@ -322,24 +289,10 @@ class TransformationRunnerFromConfig:
         """Runs all transformations in parallel using ThreadPoolExecutor"""
         configs = self._fetch_configs()
         if not configs:
-            print(f"No enabled transformations found for {self.project} ({self.env})")
-            log_and_optionally_raise(
-                module="Transformer",
-                component="TransformationRunnerFromConfig",
-                method="run_parallel",
-                message=f"No enabled transformations found for {self.project} ({self.env})",
-                level="WARNING"
-            )
+            self.logger.log("warning", f"No enabled transformations found for {self.project} ({self.env})")
             return
 
-        print(f"Running {len(configs)} transformations in parallel (max_workers={self.max_workers})...")
-        log_and_optionally_raise(
-            module="Transformer",
-            component="TransformationRunnerFromConfig",
-            method="run_parallel",
-            message=f"Running {len(configs)} transformations in parallel (max_workers={self.max_workers})...",
-            level="INFO"
-        )
+        self.logger.log("info", f"Running {len(configs)} transformations in parallel (max_workers={self.max_workers})")
         
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(self._run_one, cfg): cfg for cfg in configs}
@@ -349,14 +302,7 @@ class TransformationRunnerFromConfig:
                     future.result()
                 except Exception as e:
                     import traceback
-                    print(f"\nParallel task failed for {cfg['module']}.{cfg.get('function')} | {e}")
+                    self.logger.log("error", f"Parallel task failed for {cfg['module']}.{cfg.get('function')} | {e}")
                     print("Full traceback:")
                     traceback.print_exc()
                     print("-" * 80)
-                    log_and_optionally_raise(
-                        module="Transformer",
-                        component="TransformationRunnerFromConfig",
-                        error_type=ErrorType.TRANSFORM_ERROR,
-                        method="run_parallel",
-                        message=f"Parallel task failed for {cfg['module']} | {e}",
-                        level="ERROR")
