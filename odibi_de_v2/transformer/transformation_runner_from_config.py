@@ -5,10 +5,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import importlib
 import time
 import json
+import inspect
+from typing import Optional, Any
 from pyspark.sql.utils import AnalysisException
 from odibi_de_v2.logger import get_logger, log_and_optionally_raise
-from odibi_de_v2.core import DataType,ErrorType
+from odibi_de_v2.core import DataType, ErrorType, Engine, ExecutionContext
 from odibi_de_v2.utils import get_dynamic_thread_count
+from odibi_de_v2.odibi_functions import REGISTRY
+from odibi_de_v2.hooks import HookManager
+from odibi_de_v2.logging import BaseLogSink, SparkDeltaLogSink
 import os
 
 
@@ -20,6 +25,8 @@ class TransformationRunnerFromConfig:
     
     Updated for v2.0 to support the new TransformationRegistry table
     with JSON fields for inputs, constants, and outputs.
+    
+    Supports dual-engine execution (Spark/Pandas) with hooks and pluggable log sinks.
     """
     def __init__(
         self,
@@ -29,6 +36,9 @@ class TransformationRunnerFromConfig:
         log_level: str = "ERROR",
         max_workers: int = min(32, (os.cpu_count() or 1) + 4),
         layer: str = 'Silver',
+        engine: str = "spark",
+        hooks: Optional[HookManager] = None,
+        log_sink: Optional[BaseLogSink] = None,
         **kwargs
         ):
         self.sql_provider = sql_provider
@@ -36,13 +46,31 @@ class TransformationRunnerFromConfig:
         self.env = env
         self.log_level = log_level
         self.max_workers = max_workers
-        self.spark = SparkSession.getActiveSession()
-        self.log_table = "config_driven.TransformationRunLog"
-        self.spark.sql("CREATE SCHEMA IF NOT EXISTS config_driven")
-        self.logger=get_logger()
-        self.logger.set_log_level(log_level)
         self.layer = layer
+        self.engine = Engine.SPARK if engine.lower() == "spark" else Engine.PANDAS
+        self.hooks = hooks or HookManager()
         self.kwargs = kwargs
+        
+        # Initialize Spark session (optional if engine is pandas)
+        if self.engine == Engine.SPARK:
+            self.spark = SparkSession.getActiveSession()
+            if not self.spark:
+                raise RuntimeError("SparkSession is required for engine='spark' but no active session found")
+            self.spark.sql("CREATE SCHEMA IF NOT EXISTS config_driven")
+        else:
+            self.spark = SparkSession.getActiveSession() if SparkSession.getActiveSession() else None
+        
+        # Initialize log sink
+        if log_sink:
+            self.log_sink = log_sink
+        elif self.spark:
+            self.log_sink = SparkDeltaLogSink(self.spark, "config_driven.TransformationRunLog")
+        else:
+            self.log_sink = None
+        
+        # Initialize logger
+        self.logger = get_logger()
+        self.logger.set_log_level(log_level)
 
 
     # ----------------------------------------------------------------------
@@ -139,46 +167,11 @@ class TransformationRunnerFromConfig:
             return configs
 
     def _log(self, data: list):
-        LOG_SCHEMA = StructType([
-            StructField("transformation_id", StringType(), False),
-            StructField("project", StringType(), False),
-            StructField("plant", StringType(), True),
-            StructField("asset", StringType(), True),
-            StructField("start_time", TimestampType(), False),
-            StructField("end_time", TimestampType(), True),
-            StructField("status", StringType(), True),
-            StructField("duration_seconds", FloatType(), True),
-            StructField("error_message", StringType(), True),
-            StructField("env", StringType(), True)
-        ])
+        if not self.log_sink:
+            return
         
-        # Clean sys.path to avoid None entries that break Databricks serialization
-        import sys
-        original_path = sys.path[:]
-        sys.path = [p for p in sys.path if p is not None]
-        
-        try:
-            df = self.spark.createDataFrame(data, schema=LOG_SCHEMA)
-        finally:
-            sys.path = original_path
-        try:
-            (
-                df.write
-                .format("delta")
-                .mode("append")
-                .saveAsTable(self.log_table)
-            )
-        except AnalysisException as e:
-            if "Table or view not found" in str(e):
-                self.logger.log("info", f"Creating missing Delta table: {self.log_table}")
-                (
-                    df.write
-                    .format("delta")
-                    .mode("overwrite")
-                    .saveAsTable(self.log_table)
-                )
-            else:
-                raise e
+        records = [row.asDict() for row in data]
+        self.log_sink.write(records)
 
     def _log_start(self, cfg):
         data = [Row(
@@ -221,6 +214,8 @@ class TransformationRunnerFromConfig:
  
         Retries transient failures up to `max_retries` times
         before logging a permanent failure to the run log.
+        
+        Supports dual-engine execution with function resolution via REGISTRY.
  
         Args:
             cfg (dict): Transformation configuration record.
@@ -230,16 +225,52 @@ class TransformationRunnerFromConfig:
         full_module = cfg['module']
         func_name = cfg["function"]
         start_time = time.time()
+        
+        # Determine effective engine (config override or default)
+        effective_engine = cfg.get('constants', {}).get('engine', self.engine.value)
+        if isinstance(effective_engine, Engine):
+            effective_engine = effective_engine.value
  
-        self.logger.log("info", f"Running [{cfg['project']}] {cfg.get('plant') or ''} {cfg.get('asset') or ''} ({full_module}.{func_name})")
+        self.logger.log("info", f"Running [{cfg['project']}] {cfg.get('plant') or ''} {cfg.get('asset') or ''} ({full_module}.{func_name}) [engine={effective_engine}]")
+        
+        # Emit transform_start hook
+        self.hooks.emit("transform_start", {
+            "transformation_id": cfg.get('id'),
+            "project": cfg['project'],
+            "module": full_module,
+            "function": func_name,
+            "engine": effective_engine,
+            "layer": self.layer
+        })
  
         self._log_start(cfg)
  
         attempt = 0
         while attempt <= max_retries:
             try:
-                module = importlib.import_module(full_module)
-                func = getattr(module, func_name)
+                # Resolve function via REGISTRY with fallback to importlib
+                func = REGISTRY.resolve(full_module, func_name, effective_engine)
+                
+                if func is None:
+                    # Fallback to importlib for legacy functions
+                    module = importlib.import_module(full_module)
+                    func = getattr(module, func_name)
+                
+                # Build ExecutionContext
+                context = ExecutionContext(
+                    engine=Engine.SPARK if effective_engine == "spark" else Engine.PANDAS,
+                    project=cfg['project'],
+                    env=cfg.get('env', self.env),
+                    spark=self.spark,
+                    sql_provider=self.sql_provider,
+                    logger=self.logger,
+                    hooks=self.hooks,
+                    extras={
+                        "plant": cfg.get('plant'),
+                        "asset": cfg.get('asset'),
+                        "layer": self.layer
+                    }
+                )
                 
                 # Merge config data with kwargs (only pass non-None values)
                 func_kwargs = {**self.kwargs}
@@ -256,23 +287,62 @@ class TransformationRunnerFromConfig:
                 if cfg.get('env'):
                     func_kwargs['env'] = cfg.get('env', self.env)
                 
+                # Conditionally pass context if function accepts it
+                sig = inspect.signature(func)
+                if 'context' in sig.parameters:
+                    func_kwargs['context'] = context
+                
                 func(**func_kwargs)
  
                 # success path
                 self._log_end(cfg, "SUCCESS", start_time)
                 self.logger.log("info", f"Success: {full_module}.{func_name}")
+                
+                # Emit transform_success hook
+                self.hooks.emit("transform_success", {
+                    "transformation_id": cfg.get('id'),
+                    "project": cfg['project'],
+                    "module": full_module,
+                    "function": func_name,
+                    "duration_seconds": time.time() - start_time
+                })
+                
                 return  # exit after success
  
             except Exception as e:
                 attempt += 1
+                
+                # Emit transform_retry hook
                 if attempt <= max_retries:
                     delay = base_delay * (2 ** (attempt - 1))
                     self.logger.log("warning", f"Retry {attempt}/{max_retries} for {full_module}.{func_name} in {delay:.1f}s | {e}")
+                    
+                    self.hooks.emit("transform_retry", {
+                        "transformation_id": cfg.get('id'),
+                        "project": cfg['project'],
+                        "module": full_module,
+                        "function": func_name,
+                        "attempt": attempt,
+                        "max_retries": max_retries,
+                        "error": str(e)
+                    })
+                    
                     time.sleep(delay)
                 else:
                     # all retries failed
                     self._log_end(cfg, "FAILED", start_time, str(e).replace("'", ""))
                     self.logger.log("error", f"Failed after {max_retries} retries: {full_module}.{func_name} | {e}")
+                    
+                    # Emit transform_failure hook
+                    self.hooks.emit("transform_failure", {
+                        "transformation_id": cfg.get('id'),
+                        "project": cfg['project'],
+                        "module": full_module,
+                        "function": func_name,
+                        "error": str(e),
+                        "duration_seconds": time.time() - start_time
+                    })
+                    
                     return
 
 
@@ -282,6 +352,15 @@ class TransformationRunnerFromConfig:
         if not configs:
             self.logger.log("warning", f"No enabled transformations found for {self.project} ({self.env})")
             return
+        
+        # Emit configs_loaded hook
+        self.hooks.emit("configs_loaded", {
+            "project": self.project,
+            "env": self.env,
+            "layer": self.layer,
+            "count": len(configs)
+        })
+        
         for cfg in configs:
             self._run_one(cfg)
 
@@ -291,6 +370,14 @@ class TransformationRunnerFromConfig:
         if not configs:
             self.logger.log("warning", f"No enabled transformations found for {self.project} ({self.env})")
             return
+        
+        # Emit configs_loaded hook
+        self.hooks.emit("configs_loaded", {
+            "project": self.project,
+            "env": self.env,
+            "layer": self.layer,
+            "count": len(configs)
+        })
 
         self.logger.log("info", f"Running {len(configs)} transformations in parallel (max_workers={self.max_workers})")
         

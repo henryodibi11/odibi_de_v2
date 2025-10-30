@@ -18,7 +18,10 @@ from odibi_de_v2.databricks import DeltaTableManager
 from odibi_de_v2.transformer import TransformationRunnerFromConfig
 from odibi_de_v2.storage import SaverProvider
 from odibi_de_v2.core import DataType
+from odibi_de_v2.core.engine import Engine
 from odibi_de_v2.project.manifest import ProjectManifest
+from odibi_de_v2.hooks.manager import HookManager
+from odibi_de_v2.logging.log_sink import BaseLogSink
 
 
 class GenericProjectOrchestrator(BaseProjectOrchestrator):
@@ -134,11 +137,17 @@ class GenericProjectOrchestrator(BaseProjectOrchestrator):
         save_logs: bool = False,
         log_container: str = "digital-manufacturing",
         auth_provider: Optional[callable] = None,
+        engine: str = "spark",
+        hooks: Optional[HookManager] = None,
+        log_sink: Optional[BaseLogSink] = None,
     ):
         super().__init__(project, env, log_level)
         self.save_logs = save_logs
         self.log_container = log_container
         self.auth_provider = auth_provider
+        self.engine = Engine.SPARK if engine.lower() == "spark" else Engine.PANDAS
+        self.hooks = hooks or HookManager()
+        self.log_sink = log_sink
         self.spark = None
         self.sql_provider = None
         
@@ -213,6 +222,14 @@ class GenericProjectOrchestrator(BaseProjectOrchestrator):
         """Execute Bronze layer ingestion"""
         self.logger.log("info", f"⚙️ Running Bronze ingestion for {self.project}")
         
+        # Emit bronze_start hook
+        self.hooks.emit("bronze_start", {
+            "project": self.project,
+            "env": self.env,
+            "engine": self.engine.value,
+            "timestamp": datetime.now()
+        })
+        
         try:
             # Import bronze processor (this would come from your existing ingestion logic)
             # For now, this is a placeholder that would integrate with your IngestionSourceConfig
@@ -228,14 +245,39 @@ class GenericProjectOrchestrator(BaseProjectOrchestrator):
             )
             
             self.logger.log("info", f"✅ Bronze ingestion complete: {len(bronze_logs)} sources processed")
+            
+            # Emit bronze_end hook
+            self.hooks.emit("bronze_end", {
+                "project": self.project,
+                "env": self.env,
+                "engine": self.engine.value,
+                "timestamp": datetime.now(),
+                "status": "success",
+                "sources_processed": len(bronze_logs)
+            })
         
         except ImportError:
             self.logger.log(
                 "warning",
                 "⚠️ Bronze layer processing not configured. Skipping ingestion."
             )
+            self.hooks.emit("bronze_end", {
+                "project": self.project,
+                "env": self.env,
+                "engine": self.engine.value,
+                "timestamp": datetime.now(),
+                "status": "skipped"
+            })
         except Exception as e:
             self.logger.log("error", f"❌ Bronze ingestion failed: {e}")
+            self.hooks.emit("bronze_end", {
+                "project": self.project,
+                "env": self.env,
+                "engine": self.engine.value,
+                "timestamp": datetime.now(),
+                "status": "failed",
+                "error": str(e)
+            })
             raise
     
     # -----------------------------------------------------------------------
@@ -275,36 +317,176 @@ class GenericProjectOrchestrator(BaseProjectOrchestrator):
         
         # Execute each layer
         for layer in layers_to_run:
-            layer_start = time.time()
+            layer_start_time = time.time()
             self.logger.log("info", f"⚙️ Starting transformation layer: {layer}")
             
-            runner = TransformationRunnerFromConfig(
-                sql_provider=self.sql_provider,
-                project=self.project,
-                env=self.env,
-                max_workers=workers,
-                layer=layer,
-            )
-            runner.run_parallel()
+            # Emit layer_start hook
+            self.hooks.emit("layer_start", {
+                "project": self.project,
+                "env": self.env,
+                "layer": layer,
+                "engine": self.engine.value,
+                "timestamp": datetime.now()
+            })
             
-            elapsed = time.time() - layer_start
-            self.logger.log("info", f"✅ Layer {layer} completed in {elapsed:.2f}s")
+            try:
+                runner = TransformationRunnerFromConfig(
+                    sql_provider=self.sql_provider,
+                    project=self.project,
+                    env=self.env,
+                    max_workers=workers,
+                    layer=layer,
+                    engine=self.engine.value,
+                    hooks=self.hooks,
+                    log_sink=self.log_sink,
+                )
+                runner.run_parallel()
+                
+                elapsed = time.time() - layer_start_time
+                self.logger.log("info", f"✅ Layer {layer} completed in {elapsed:.2f}s")
+                
+                # Emit layer_end hook
+                self.hooks.emit("layer_end", {
+                    "project": self.project,
+                    "env": self.env,
+                    "layer": layer,
+                    "engine": self.engine.value,
+                    "timestamp": datetime.now(),
+                    "status": "success",
+                    "duration_seconds": elapsed
+                })
+                
+                # Cache post-layer tables (skip for pandas with warning)
+                if cache and layer in cache:
+                    if self.engine == Engine.PANDAS:
+                        self.logger.log("warning", f"⚠️ Caching not supported for pandas engine. Skipping cache for {layer}")
+                    else:
+                        self.logger.log("info", f"📦 Caching tables after {layer}")
+                        for table in cache[layer]:
+                            try:
+                                DeltaTableManager(self.spark, table).cache()
+                                self.logger.log("info", f"✅ Cached table: {table}")
+                            except Exception as e:
+                                self.logger.log("warning", f"⚠️ Could not cache {table}: {e}")
             
-            # Cache post-layer tables
-            if cache and layer in cache:
-                self.logger.log("info", f"📦 Caching tables after {layer}")
-                for table in cache[layer]:
-                    try:
-                        DeltaTableManager(self.spark, table).cache()
-                        self.logger.log("info", f"✅ Cached table: {table}")
-                    except Exception as e:
-                        self.logger.log("warning", f"⚠️ Could not cache {table}: {e}")
+            except Exception as e:
+                elapsed = time.time() - layer_start_time
+                self.logger.log("error", f"❌ Layer {layer} failed: {e}")
+                
+                # Emit layer_end hook with failure
+                self.hooks.emit("layer_end", {
+                    "project": self.project,
+                    "env": self.env,
+                    "layer": layer,
+                    "engine": self.engine.value,
+                    "timestamp": datetime.now(),
+                    "status": "failed",
+                    "duration_seconds": elapsed,
+                    "error": str(e)
+                })
+                raise
         
         duration = time.time() - start_time
         self.logger.log("info", f"🏁 Transformation processing complete in {duration:.2f}s")
     
     # -----------------------------------------------------------------------
-    # 4️⃣ Optional log persistence
+    # 4️⃣ Orchestration runner with hooks
+    # -----------------------------------------------------------------------
+    def run(self, **kwargs) -> dict:
+        """Full lifecycle orchestration with hook support."""
+        start_time = time.time()
+        repo_path = kwargs.get("repo_path")
+        target_layers = kwargs.get("target_layers")
+
+        self.logger.log("info", f"🚀 Starting orchestrator for {self.project.upper()} (env={self.env})")
+
+        # Emit orchestrator_run_start hook
+        self.hooks.emit("orchestrator_run_start", {
+            "project": self.project,
+            "env": self.env,
+            "engine": self.engine.value,
+            "timestamp": datetime.now(),
+            "target_layers": target_layers
+        })
+
+        try:
+            # 1️⃣ Environment setup
+            self.bootstrap(repo_path=repo_path)
+
+            # 2️⃣ Bronze layer (if applicable)
+            if not target_layers or "Bronze" in target_layers:
+                self.run_bronze_layer()
+                if target_layers == ["Bronze"]:
+                    self.logger.log("info", "🔹 Target layer is Bronze only — exiting after ingestion.")
+                    duration = round(time.time() - start_time, 2)
+                    
+                    # Emit orchestrator_run_end hook
+                    self.hooks.emit("orchestrator_run_end", {
+                        "project": self.project,
+                        "env": self.env,
+                        "engine": self.engine.value,
+                        "timestamp": datetime.now(),
+                        "status": "success",
+                        "layers_executed": ["Bronze"],
+                        "duration_seconds": duration
+                    })
+                    
+                    return {
+                        "status": "SUCCESS",
+                        "project": self.project,
+                        "env": self.env,
+                        "layers_run": ["Bronze"],
+                        "duration_seconds": duration,
+                    }
+
+            # 3️⃣ Silver/Gold layers
+            self.run_silver_gold_layers(**kwargs)
+            status = "SUCCESS"
+            layers_executed = target_layers if target_layers else ["Bronze", "Silver", "Gold"]
+
+        except Exception as e:
+            status = "FAILED"
+            self.logger.log("error", f"❌ Orchestrator failed: {e}")
+            duration = round(time.time() - start_time, 2)
+            
+            # Emit orchestrator_run_end hook with failure
+            self.hooks.emit("orchestrator_run_end", {
+                "project": self.project,
+                "env": self.env,
+                "engine": self.engine.value,
+                "timestamp": datetime.now(),
+                "status": "failed",
+                "duration_seconds": duration,
+                "error": str(e)
+            })
+            raise
+        finally:
+            self.on_finish()
+
+        total_time = round(time.time() - start_time, 2)
+        self.logger.log("info", f"🏁 Orchestration completed in {total_time:.2f}s")
+
+        # Emit orchestrator_run_end hook
+        self.hooks.emit("orchestrator_run_end", {
+            "project": self.project,
+            "env": self.env,
+            "engine": self.engine.value,
+            "timestamp": datetime.now(),
+            "status": "success",
+            "layers_executed": layers_executed,
+            "duration_seconds": total_time
+        })
+
+        return {
+            "status": status,
+            "project": self.project,
+            "env": self.env,
+            "layers_run": layers_executed,
+            "duration_seconds": total_time,
+        }
+    
+    # -----------------------------------------------------------------------
+    # 5️⃣ Optional log persistence
     # -----------------------------------------------------------------------
     def on_finish(self):
         """Save logs if configured"""
@@ -345,6 +527,9 @@ def run_project(
     log_level: str = "WARNING",
     save_logs: bool = False,
     auth_provider: Optional[callable] = None,
+    engine: str = "spark",
+    hooks: Optional[HookManager] = None,
+    log_sink: Optional[BaseLogSink] = None,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -371,6 +556,11 @@ def run_project(
         save_logs: If True, persists execution logs to cloud storage after completion.
         auth_provider: Optional callable that returns authentication context with
             'spark' and 'sql_provider' keys. Required for Databricks execution.
+        engine: Execution engine - "spark" or "pandas". Defaults to "spark". Note that
+            caching is not supported for pandas engine.
+        hooks: Optional HookManager instance for event-driven workflows. If None, a
+            default HookManager is created.
+        log_sink: Optional LogSink instance for custom transformation logging.
         **kwargs: Additional parameters passed to the orchestrator (e.g., max_workers,
             repo_path for custom authentication).
     
@@ -515,7 +705,10 @@ def run_project(
         manifest_path=Path(manifest_path) if manifest_path else None,
         log_level=log_level,
         save_logs=save_logs,
-        auth_provider=auth_provider
+        auth_provider=auth_provider,
+        engine=engine,
+        hooks=hooks,
+        log_sink=log_sink,
     )
     
     return orchestrator.run(

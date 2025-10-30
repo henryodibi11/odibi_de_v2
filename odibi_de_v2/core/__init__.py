@@ -10,6 +10,7 @@ from .enums import (
     ColumnType)
 from .transformer import IDataTransformer, node_wrapper
 from .query_builder import BaseQueryBuilder
+from .engine import Engine, ExecutionContext
 
 
 __all__ = [
@@ -27,5 +28,7 @@ __all__ = [
     "ColumnType",
     "IDataTransformer",
     "node_wrapper",
-    "BaseQueryBuilder"
+    "BaseQueryBuilder",
+    "Engine",
+    "ExecutionContext",
 ]
