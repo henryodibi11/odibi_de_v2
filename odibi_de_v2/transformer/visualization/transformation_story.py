@@ -540,7 +540,11 @@ class TransformationStory:
                 else:
                     print(f"✅ HTML saved to: {output_path}")
             elif output_path.startswith("abfss:"):
-                dbutils.fs.put(output_path, html_str, overwrite=True)  # type: ignore # noqa
+                # Import dbutils in local scope to avoid NameError
+                from pyspark.dbutils import DBUtils
+                from pyspark.sql import SparkSession
+                dbutils = DBUtils(SparkSession.builder.getOrCreate())
+                dbutils.fs.put(output_path, html_str, overwrite=True)
                 print(f"✅ Uploaded to ADLS: {output_path}")
             else:
                 with open(output_path, "w", encoding="utf-8") as f:
